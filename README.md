@@ -1,4 +1,4 @@
-![binggio: Enterprise Context Intelligence](docs/assets/binggio.png)
+![binggio: Enterprise Context Intelligence](https://raw.githubusercontent.com/binggio/binggio/main/docs/assets/binggio.png)
 
 # Binggio™
 
@@ -12,6 +12,15 @@ precisely it says why, instead of guessing.
 - Every answer shows the terms, filters, links and sources it used.
 - Approvals are recorded with who made them and why, and stop being used the moment the data
   they were made on changes.
+
+![Asking the sample bank a question: the answer shows the approved term, tables and steps it used](https://raw.githubusercontent.com/binggio/binggio/main/docs/assets/binggio-ask.gif)
+
+### See it in action
+
+<!-- Walkthrough video: on github.com, edit this file and drag binggio-walkthrough.mp4 onto the line below. -->
+
+A two-minute tour: the sample bank, questions with provenance, review and approval, the
+relationship map, adding your own CSV files, and the data story.
 
 ## Install
 
