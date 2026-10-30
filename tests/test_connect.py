@@ -61,4 +61,5 @@ def test_cli_uses_binggio_workspace_env(demo):
     r = subprocess.run([sys.executable, '-m', 'binggio', 'connect', 'cursor', '--print'], capture_output=True, text=True,
                        env=env, cwd=str(Path(demo.root).parent))
     assert r.returncode == 0, r.stderr
-    assert str(Path(demo.root).resolve()) in r.stdout and '"mcpServers"' in r.stdout
+    snippet = json.loads(r.stdout[r.stdout.index('{'):])   # Windows paths are escaped inside JSON, so compare parsed values
+    assert snippet['mcpServers']['binggio']['args'][3] == str(Path(demo.root).resolve())
