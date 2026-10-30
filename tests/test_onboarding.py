@@ -17,7 +17,7 @@ FIX = Path(__file__).parent / 'fixtures' / 'collections'
 
 @pytest.fixture(scope='module')
 def onboarded(tmp_path_factory):
-    ws = binggio.Workspace.demo(tmp_path_factory.mktemp('onb') / 'bank')
+    ws = binggio.Workspace.demo(tmp_path_factory.mktemp('onb') / 'bank', locked=False)
     before = store.summary(ws.root)['registry_status']
     c = ws.add_csv_folder('Collections system', FIX)
     assert ws.profile()['failures'] == []

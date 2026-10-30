@@ -73,6 +73,19 @@ class Workspace:
             raise WorkspaceError('Not a Binggio workspace (no %s): %s' % (MARKER, self.root))
         self._session = None
 
+    @property
+    def is_demo(self):
+        """The sample bank: its data is fixed so the prepared questions and approvals stay correct."""
+        try:
+            return bool(json.loads((self.root / MARKER).read_text(encoding='utf-8')).get('demo'))
+        except (OSError, ValueError):
+            return False
+
+    def _no_data_changes(self):
+        if self.is_demo:
+            raise WorkspaceError('The sample bank is read-only, so its data stays exactly as prepared. To use your own data, '
+                                 'create a new workspace ("New workspace" in the app, or: binggio init <folder>).')
+
     # ------------------------------------------------------------ create / open
     @classmethod
     def create(cls, root):
@@ -97,8 +110,10 @@ class Workspace:
         raise WorkspaceError('No Binggio workspace found here or above. Run: binggio init <folder>')
 
     @classmethod
-    def demo(cls, root):
-        """A ready-to-ask copy of the synthetic demo bank (approved registry included)."""
+    def demo(cls, root, locked=True):
+        """A ready-to-ask copy of the synthetic demo bank (approved registry included). Its data is
+        locked (no sources can be added or refreshed) unless locked=False, which tests use to
+        check onboarding on top of an approved bank."""
         root = Path(root).resolve()
         if root.exists() and any(root.iterdir()):
             raise WorkspaceError('Choose an empty or new folder for the demo: %s' % root)
@@ -106,12 +121,12 @@ class Workspace:
         if not src.is_dir():
             raise WorkspaceError('The demo bank is not bundled with this installation')
         shutil.copytree(src, root, dirs_exist_ok=True)
-        if not (root / MARKER).exists():
-            (root / MARKER).write_text(json.dumps({'format': FORMAT, 'kind': 'binggio-workspace'}, indent=2), encoding='utf-8')
+        (root / MARKER).write_text(json.dumps({'format': FORMAT, 'kind': 'binggio-workspace', 'demo': bool(locked)}, indent=2), encoding='utf-8')
         return cls(root)
 
     # ------------------------------------------------------------ sources
     def _copy_in(self, name, copy):
+        self._no_data_changes()
         dest = self.root / 'data' / 'sources' / _slug(name)
         n, base = 2, dest
         while dest.exists():
@@ -176,6 +191,7 @@ class Workspace:
         """Re-read an Excel or database source into the same place. Approvals stay bound to the
         old content: tables whose data changed make their approvals stale until re-confirmed;
         unchanged tables keep theirs."""
+        self._no_data_changes()
         from binggio.connectors import write_snapshot, MANIFEST, excel, database as db
         conn = next((c for c in self.connections() if c['id'] == connection_id), None)
         if conn is None: raise WorkspaceError('Unknown source: %s' % connection_id)

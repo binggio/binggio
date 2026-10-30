@@ -191,6 +191,9 @@ pre{white-space:pre-wrap;word-break:break-word;background:#f3f5f8;border-radius:
   .stats{grid-template-columns:repeat(2,1fr)} .grid2,.grid3,.split,.ask,.start{grid-template-columns:1fr}
   .page{padding:16px} .top{padding:12px 16px;flex-wrap:wrap} .graph{height:480px}
 }
+.demo-band{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 26px 0;max-width:1228px;padding:10px 14px;border-radius:10px;background:var(--blue2);border:1px solid var(--line);font-size:14px}
+.demo-band span{flex:1;min-width:200px;color:var(--muted)}
+@media (max-width:700px){.demo-band{margin:12px 16px 0}}
 </style>
 </head>
 <body>
@@ -382,12 +385,16 @@ function shell() {
     <div class="brand"><div class="logo" style="font-size:21px">${LOGO(22, "#fff", "var(--dotnav)")}<span>binggio</span><sup>TM</sup></div><small id="ws-name" style="margin-top:6px"></small></div>
     ${NAV.map(([k, l]) => `<a href="#${k}" data-nav="${k}">${l}<span class="badge" id="badge-${k}" hidden></span></a>`).join('')}
     <div class="grow"></div><div class="foot"><a href="#" id="switch-ws" style="padding:0;border:0;display:inline">Switch workspace</a><br><a href="#" id="feedback" style="padding:0;border:0;display:inline">Send feedback</a><br>Binggio ${esc(S.state.version)} · <a href="#settings" style="padding:0;border:0;display:inline">AGPL-3.0</a></div></nav>
-    <main><div class="top"><h1 id="title"></h1><span id="top-chips" class="row"></span></div><div class="page" id="page"></div></main></div>`;
+    <main><div class="top"><h1 id="title"></h1><span id="top-chips" class="row"></span></div>${S.state.demo ? DEMO_BAND : ''}<div class="page" id="page"></div></main></div>`;
   $('#ws-name').textContent = S.state.name; $('#ws-name').title = S.state.workspace;
   $('#switch-ws').onclick = e => { e.preventDefault(); startScreen(true); };
+  bindDemoBand(document);
   $('#feedback').onclick = e => { e.preventDefault(); location.href = feedbackLink(); };
   renderTop();
 }
+const DEMO_BAND = `<div class="demo-band" role="note"><b>Sample bank</b><span>Explore, review and ask freely. Its data is fixed, so nothing can be added or refreshed here.</span>
+  <button class="btn sm primary" data-own-data>Start with your own data</button></div>`;
+function bindDemoBand(el) { $$('[data-own-data]', el).forEach(b => b.onclick = () => startScreen(true)); }
 function renderTop() {
   const el = $('#top-chips'); if (!el) return;
   const m = S.state.model, by = reviewer();
@@ -492,7 +499,7 @@ async function pageHome() {
         <tr><td>As-of date for date rules</td><td class="num">${esc(ans.as_of || 'not set')}</td></tr></table>
         <p class="muted small" style="margin-top:10px">Column roles: ${fmt(o.roles.approved)} approved, ${fmt(o.roles.pending)} waiting. Relationships: ${fmt(o.relationships.approved)} approved, ${fmt(o.relationships.pending)} waiting.</p></div>
     </div>
-    <div class="panel flush"><div style="padding:16px 18px 6px" class="row"><h2 style="flex:1;margin:0">Sources</h2><a class="btn sm" href="#sources">Add data</a></div>${sourcesTable(o.sources)}</div>
+    <div class="panel flush"><div style="padding:16px 18px 6px" class="row"><h2 style="flex:1;margin:0">Sources</h2>${S.state.demo ? '' : '<a class="btn sm" href="#sources">Add data</a>'}</div>${sourcesTable(o.sources)}</div>
     <div class="panel"><h2>Recent decisions</h2>${eventsList(o.recent)}</div>`;
   bindSourceActions(p);
 }
@@ -502,7 +509,7 @@ function sourcesTable(items) {
     <td><b>${esc(s.name)}</b><div class="faint small">${esc(s.id)}</div></td><td>${esc(SRC[s.kind] || s.kind)}</td><td class="num">${fmt(s.tables)}</td>
     <td>${s.stale ? `<span class="pill s-stale">${s.stale} changed</span> ` : ''}${s.not_profiled ? `<span class="pill s-not_profiled">${s.not_profiled} not profiled</span> ` : ''}${!s.stale && !s.not_profiled ? pill('profiled') : ''}</td>
     <td style="text-align:right"><a class="btn sm" href="#onboard/${encodeURIComponent(s.id)}">Onboard</a> <a class="btn sm" href="#explore/${encodeURIComponent(s.id)}">Explore</a>
-    ${s.refreshable ? `<button class="btn sm" data-refresh="${esc(s.id)}" data-kind="${esc(s.kind)}" data-user="${esc((s.origin || {}).user || '')}">Refresh</button>` : ''}</td></tr>`).join('')}</table><div id="src-job" style="padding:0 18px 12px"></div>`;
+    ${s.refreshable && !S.state.demo ? `<button class="btn sm" data-refresh="${esc(s.id)}" data-kind="${esc(s.kind)}" data-user="${esc((s.origin || {}).user || '')}">Refresh</button>` : ''}</td></tr>`).join('')}</table><div id="src-job" style="padding:0 18px 12px"></div>`;
 }
 function bindSourceActions(p) {
   $$('[data-refresh]', p).forEach(b => b.onclick = async () => {
@@ -540,6 +547,13 @@ async function pageSources() {
   const [{items}, st] = [await api('/api/sources'), S.state];
   const types = [['csv', 'CSV folder'], ['excel', 'Excel workbook'], ['sqlite', 'SQLite file'], ['sqlserver', 'SQL Server'], ['oracle', 'Oracle'], ['postgres', 'PostgreSQL']];
   let typ = store.get('srctype', 'csv');
+  if (st.demo) {
+    p.innerHTML = `<div class="panel"><div class="head"><h2>The sample bank's data is fixed</h2></div>
+      <p class="muted">The ten prepared questions and every approval here were checked against exactly this data, so adding or refreshing sources is turned off. To try your own files or database, create a separate workspace; the sample bank stays as it is.</p>
+      <button class="btn primary" data-own-data>Start with your own data</button></div>
+      <div class="panel flush"><div style="padding:16px 18px 6px"><h2 style="margin:0">Sources in the sample bank</h2></div><div id="src-list">${sourcesTable(items)}</div></div>`;
+    bindDemoBand(p); return;
+  }
   p.innerHTML = `<div class="panel"><div class="head"><h2>Add data</h2></div>
     <p class="muted">Binggio copies the data into this workspace (read-only on the original), profiles every column and looks for relationships. Nothing is approved until you review it.</p>
     <div class="tabs" id="src-tabs">${types.map(([k, l]) => `<a href="#" data-t="${k}">${l}</a>`).join('')}</div>

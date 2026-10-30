@@ -11,7 +11,7 @@ FIX = Path(__file__).parent / 'fixtures' / 'collections'
 
 
 def test_onboard_then_ask_with_new_term(tmp_path):
-    ws = binggio.Workspace.demo(tmp_path / 'bank')
+    ws = binggio.Workspace.demo(tmp_path / 'bank', locked=False)
     cid = ws.add_csv_folder('Collections system', FIX)['id']
     ws.profile(); ws.discover()
     props = onboard.proposals(ws.root, cid)

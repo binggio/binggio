@@ -190,3 +190,13 @@ def test_bad_requests_are_explained(demo_app):
         j = demo_app.wait(d)
         assert j['status'] == 'failed' and j['error']
     assert demo_app.call('/api/nothing')[0] == 404
+
+
+def test_sample_bank_refuses_new_sources(tmp_path):
+    from binggio.ui.server import App, api, ApiError
+    from binggio.workspace import Workspace
+    app = App(Workspace.demo(tmp_path / 'sample'))
+    assert api(app, 'GET', '/api/state', {}, {})['demo'] is True
+    csv = tmp_path / 'n.csv'; csv.write_text('a\n1\n')
+    with pytest.raises(Exception, match='read-only'):
+        api(app, 'POST', '/api/sources', {}, {'type': 'csv', 'name': 'Noise', 'path': str(csv)})

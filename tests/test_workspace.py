@@ -102,3 +102,17 @@ def test_add_csv_accepts_several_files(tmp_path):
     other = tmp_path / 'other'; other.mkdir(); (other / 'a.csv').write_text('z\n1\n')
     with pytest.raises(binggio.WorkspaceError, match='Two files are called a.csv'):
         ws.add_csv_folder('Clash', [src / 'a.csv', other / 'a.csv'])
+
+
+def test_sample_bank_data_is_fixed(tmp_path):
+    from binggio.workspace import Workspace, WorkspaceError
+    ws = Workspace.demo(tmp_path / 'sample')
+    assert ws.is_demo
+    csv = tmp_path / 'noise.csv'; csv.write_text('a,b\n1,2\n')
+    before = len(ws.connections())
+    for attempt in (lambda: ws.add_csv_folder('Noise', str(csv)), lambda: ws.refresh(ws.connections()[0]['id'])):
+        with pytest.raises(WorkspaceError, match='sample bank is read-only'):
+            attempt()
+    assert len(ws.connections()) == before
+    own = Workspace.create(tmp_path / 'mine')
+    assert not own.is_demo and own.add_csv_folder('Mine', str(csv))['table_count'] == 1

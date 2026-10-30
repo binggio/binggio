@@ -183,7 +183,7 @@ def api(app: App, method, path, q, body):
         return {'version': __version__, 'python': platform.python_version(), 'platform': '%s %s' % (platform.system(), platform.release()),
                 'workspace': str(ws.root) if ws else None,
                 'name': ws.root.name if ws else None, 'model': _model_state(), 'recent': _read_recent(),
-                'home': str(Path.home()), 'samples': bool(ws and _demo_samples(ws)), 'excel': _has('openpyxl'),
+                'home': str(Path.home()), 'samples': bool(ws and _demo_samples(ws)), 'demo': bool(ws and ws.is_demo), 'excel': _has('openpyxl'),
                 'drivers': {'sqlserver': _has('pymssql'), 'oracle': _has('oracledb'), 'postgres': _has('psycopg')}}
 
     if path == '/api/workspace' and method == 'POST':
@@ -227,6 +227,8 @@ def api(app: App, method, path, q, body):
 
     if path == '/api/sources' and method == 'GET':
         return {'items': _sources(ws)}
+    if path in ('/api/sources', '/api/sources/refresh') and method == 'POST':
+        ws._no_data_changes()          # the sample bank's data is fixed
     if path == '/api/sources' and method == 'POST':
         return _add_source(app, ws, body)
     if path == '/api/sources/refresh' and method == 'POST':
