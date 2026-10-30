@@ -1,0 +1,46 @@
+RECORD_ID,TXN_ID,TYPE_CODE,DESCRIPTION
+22-00001,T000232,RETAIL,Service response requested
+22-00002,T000239,STANDARD,Billing clarification
+22-00003,T000246,PREMIUM,Product enquiry
+22-00004,T000253,CORPORATE,Satisfied with support
+22-00005,T000260,RETAIL,Service response requested
+22-00006,T000267,STANDARD,Billing clarification
+22-00007,T000274,PREMIUM,Product enquiry
+22-00008,T000281,CORPORATE,Satisfied with support
+22-00009,T000288,RETAIL,Service response requested
+22-00010,T000295,STANDARD,Billing clarification
+22-00011,T000002,PREMIUM,Product enquiry
+22-00012,T000009,CORPORATE,Satisfied with support
+22-00013,T000016,RETAIL,Service response requested
+22-00014,T000023,STANDARD,Billing clarification
+22-00015,T000030,PREMIUM,Product enquiry
+22-00016,T000037,CORPORATE,Satisfied with support
+22-00017,T000044,RETAIL,Service response requested
+22-00018,T000051,STANDARD,Billing clarification
+22-00019,T000058,PREMIUM,Product enquiry
+22-00020,T000065,CORPORATE,Satisfied with support
+22-00021,T000072,RETAIL,Service response requested
+22-00022,T000079,STANDARD,Billing clarification
+22-00023,T000086,PREMIUM,Product enquiry
+22-00024,T000093,CORPORATE,Satisfied with support
+22-00025,T000100,RETAIL,Service response requested
+22-00026,T000107,STANDARD,Billing clarification
+22-00027,T000114,PREMIUM,Product enquiry
+22-00028,T000121,CORPORATE,Satisfied with support
+22-00029,T000128,RETAIL,Service response requested
+22-00030,T000135,STANDARD,Billing clarification
+22-00031,T000142,PREMIUM,Product enquiry
+22-00032,T000149,CORPORATE,Satisfied with support
+22-00033,T000156,RETAIL,Service response requested
+22-00034,T000163,STANDARD,Billing clarification
+22-00035,T000170,PREMIUM,Product enquiry
+22-00036,T000177,CORPORATE,Satisfied with support
+22-00037,T000184,RETAIL,Service response requested
+22-00038,T000191,STANDARD,Billing clarification
+22-00039,T000198,PREMIUM,Product enquiry
+22-00040,T000205,CORPORATE,Satisfied with support
+22-00041,T000212,RETAIL,Service response requested
+22-00042,T000219,STANDARD,Billing clarification
+22-00043,T000226,PREMIUM,Product enquiry
+22-00044,T000233,CORPORATE,Satisfied with support
+22-00045,T000240,RETAIL,Service response requested

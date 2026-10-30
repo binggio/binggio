@@ -1,0 +1,29 @@
+{
+  "adapter": "snowflake",
+  "dataset": "Binggio_Snowflake",
+  "mode": "bounded_read_only_snapshot",
+  "not_live": true,
+  "generated_at_utc": "2026-10-18T07:18:34.235711+00:00",
+  "tables": [
+    {
+      "table": "CUSTOMER_PORTFOLIO",
+      "rows": 100,
+      "columns": 5,
+      "sha256": "dcb9b40f3a096f2246df3b2323fb32ac5108a076b87afb78a4fc4975f343f699"
+    },
+    {
+      "table": "LOAN_BALANCE_HISTORY",
+      "rows": 300,
+      "columns": 5,
+      "sha256": "5cd5dfbcff778a1836e419b1a53b70298c1b123ddcc9baa846a55b1d3d157531"
+    },
+    {
+      "table": "PORTFOLIO_RISK_HISTORY",
+      "rows": 300,
+      "columns": 4,
+      "sha256": "da588d9da53135e7250fd24fd58eb872b308f0f050fdb8528e9c38134d45d7d5"
+    }
+  ],
+  "schema_contract": "binggio-phase1-v1",
+  "relative_catalog_path": "external_phase1/snowflake/Binggio_Snowflake"
+}

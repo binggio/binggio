@@ -1,0 +1,450 @@
+[
+ {
+  "id": "Q1",
+  "question": "PREMIUM + delinquent loan + escalated complaint",
+  "plans": [
+   {
+    "entity": "csv_clean::customer_master",
+    "select": [
+     "csv_clean::customer_master::CUSTOMER_ID",
+     "csv_clean::customer_master::CUSTOMER_NAME"
+    ],
+    "filters": [
+     {
+      "field": "csv_clean::customer_master::SEGMENT",
+      "op": "eq",
+      "value": "PREMIUM"
+     }
+    ],
+    "terms": [
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ],
+    "exists": [
+     {
+      "table": "sqlite_imperfect::complaint_log",
+      "filters": [
+       {
+        "field": "sqlite_imperfect::complaint_log::STATUS",
+        "op": "eq",
+        "value": "ESCALATED"
+       }
+      ],
+      "negate": false
+     }
+    ]
+   }
+  ],
+  "expected": [
+   "C0014",
+   "C0026",
+   "C0030",
+   "C0058",
+   "C0070",
+   "C0102",
+   "C0106",
+   "C0118"
+  ]
+ },
+ {
+  "id": "Q2",
+  "question": "delinquent, >5M, PREMIUM customer",
+  "plans": [
+   {
+    "entity": "conn_31ca3d841ed240::loan_accounts",
+    "select": [
+     "conn_31ca3d841ed240::loan_accounts::loan_id",
+     "conn_31ca3d841ed240::loan_accounts::loan_product",
+     "conn_31ca3d841ed240::loan_accounts::outstanding_balance"
+    ],
+    "filters": [
+     {
+      "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+      "op": "gt",
+      "value": 5000000
+     },
+     {
+      "field": "csv_clean::customer_master::SEGMENT",
+      "op": "eq",
+      "value": "PREMIUM"
+     }
+    ],
+    "terms": [
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ],
+    "sort": [
+     {
+      "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+      "direction": "desc"
+     }
+    ]
+   }
+  ],
+  "expected": [
+   "LN0056",
+   "LN0058",
+   "LN0064",
+   "LN0071",
+   "LN0073",
+   "LN0078",
+   "LN0080",
+   "LN0082",
+   "LN0086",
+   "LN0094",
+   "LN0095",
+   "LN0097",
+   "LN0100"
+  ]
+ },
+ {
+  "id": "Q3",
+  "question": "risk>50 + open account + any complaint, no escalated ticket",
+  "plans": [
+   {
+    "entity": "csv_clean::customer_master",
+    "select": [
+     "csv_clean::customer_master::CUSTOMER_ID"
+    ],
+    "exists": [
+     {
+      "table": "csv_clean::risk_assessments",
+      "filters": [
+       {
+        "field": "csv_clean::risk_assessments::RISK_SCORE",
+        "op": "gt",
+        "value": 50
+       }
+      ],
+      "negate": false
+     },
+     {
+      "table": "sqlite_imperfect::account_master",
+      "filters": [
+       {
+        "field": "sqlite_imperfect::account_master::STATUS",
+        "op": "eq",
+        "value": "OPEN"
+       }
+      ],
+      "negate": false
+     },
+     {
+      "table": "sqlite_imperfect::complaint_log",
+      "filters": [],
+      "negate": false
+     },
+     {
+      "table": "sqlite_imperfect::service_tickets",
+      "filters": [
+       {
+        "field": "sqlite_imperfect::service_tickets::TICKET_STATUS",
+        "op": "eq",
+        "value": "ESCALATED"
+       }
+      ],
+      "negate": true
+     }
+    ]
+   }
+  ],
+  "expected": [
+   "C0019",
+   "C0091"
+  ]
+ },
+ {
+  "id": "Q4",
+  "question": "total outstanding of delinquent loans by product",
+  "plans": [
+   {
+    "entity": "conn_31ca3d841ed240::loan_accounts",
+    "aggregate": [
+     {
+      "fn": "sum",
+      "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+      "alias": "total_outstanding"
+     }
+    ],
+    "group_by": [
+     "conn_31ca3d841ed240::loan_accounts::loan_product"
+    ],
+    "terms": [
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ]
+   }
+  ],
+  "expected": {
+   "AUTO_LOAN": 98730000.0,
+   "BUSINESS_LOAN": 123000000.0,
+   "HOME_LOAN": 105595000.0,
+   "PERSONAL_LOAN": 89825000.0
+  }
+ },
+ {
+  "id": "Q5",
+  "question": "restructured AND delinquent, sorted",
+  "plans": [
+   {
+    "entity": "conn_31ca3d841ed240::loan_accounts",
+    "select": [
+     "conn_31ca3d841ed240::loan_accounts::loan_id",
+     "conn_31ca3d841ed240::loan_accounts::customer_reference",
+     "conn_31ca3d841ed240::loan_accounts::outstanding_balance"
+    ],
+    "terms": [
+     {
+      "term": "term:31b22245cd52446ca928c53beab1946b",
+      "negate": false
+     },
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ],
+    "sort": [
+     {
+      "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+      "direction": "desc"
+     }
+    ]
+   }
+  ],
+  "expected": [
+   "LN0017",
+   "LN0034",
+   "LN0051",
+   "LN0068",
+   "LN0085"
+  ]
+ },
+ {
+  "id": "Q6",
+  "question": "Mumbai + delinquent loan + any complaint",
+  "plans": [
+   {
+    "entity": "csv_clean::customer_master",
+    "select": [
+     "csv_clean::customer_master::CUSTOMER_ID",
+     "csv_clean::customer_master::CUSTOMER_NAME"
+    ],
+    "filters": [
+     {
+      "field": "csv_messy::customer_addresses::CITY",
+      "op": "eq",
+      "value": "Mumbai"
+     }
+    ],
+    "terms": [
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ],
+    "exists": [
+     {
+      "table": "sqlite_imperfect::complaint_log",
+      "filters": [],
+      "negate": false
+     }
+    ]
+   }
+  ],
+  "expected": [
+   "C0015",
+   "C0030",
+   "C0070"
+  ]
+ },
+ {
+  "id": "Q7",
+  "question": "customers with a delinquent loan, per segment",
+  "plans": [
+   {
+    "entity": "csv_clean::customer_master",
+    "aggregate": [
+     {
+      "fn": "count_distinct",
+      "field": "csv_clean::customer_master::CUSTOMER_ID",
+      "alias": "customers"
+     }
+    ],
+    "group_by": [
+     "csv_clean::customer_master::SEGMENT"
+    ],
+    "terms": [
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ]
+   }
+  ],
+  "expected": {
+   "CORPORATE": 7,
+   "PREMIUM": 11,
+   "RETAIL": 10,
+   "STANDARD": 8
+  }
+ },
+ {
+  "id": "Q8",
+  "question": "delinquent loan + fraud signal >80 + risk >50",
+  "plans": [
+   {
+    "entity": "csv_clean::customer_master",
+    "select": [
+     "csv_clean::customer_master::CUSTOMER_ID"
+    ],
+    "terms": [
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ],
+    "exists": [
+     {
+      "table": "sqlite_imperfect::fraud_signals",
+      "filters": [
+       {
+        "field": "sqlite_imperfect::fraud_signals::SIGNAL_SCORE",
+        "op": "gt",
+        "value": 80
+       }
+      ],
+      "negate": false
+     },
+     {
+      "table": "csv_clean::risk_assessments",
+      "filters": [
+       {
+        "field": "csv_clean::risk_assessments::RISK_SCORE",
+        "op": "gt",
+        "value": 50
+       }
+      ],
+      "negate": false
+     }
+    ]
+   }
+  ],
+  "expected": [
+   "C0082"
+  ]
+ },
+ {
+  "id": "Q9",
+  "question": "top 5 delinquent loans of STANDARD customers by balance",
+  "plans": [
+   {
+    "entity": "conn_31ca3d841ed240::loan_accounts",
+    "select": [
+     "conn_31ca3d841ed240::loan_accounts::loan_id",
+     "conn_31ca3d841ed240::loan_accounts::loan_product",
+     "conn_31ca3d841ed240::loan_accounts::annual_interest_rate",
+     "conn_31ca3d841ed240::loan_accounts::outstanding_balance"
+    ],
+    "filters": [
+     {
+      "field": "csv_clean::customer_master::SEGMENT",
+      "op": "eq",
+      "value": "STANDARD"
+     }
+    ],
+    "terms": [
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ],
+    "sort": [
+     {
+      "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+      "direction": "desc"
+     }
+    ],
+    "limit": 5
+   }
+  ],
+  "expected": [
+   "LN0096",
+   "LN0089",
+   "LN0087",
+   "LN0077",
+   "LN0075"
+  ]
+ },
+ {
+  "id": "Q10",
+  "question": "top 10 loans -> delinquent ones -> their customers",
+  "plans": [
+   {
+    "entity": "conn_31ca3d841ed240::loan_accounts",
+    "select": [
+     "conn_31ca3d841ed240::loan_accounts::loan_id"
+    ],
+    "sort": [
+     {
+      "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+      "direction": "desc"
+     }
+    ],
+    "limit": 10
+   },
+   {
+    "entity": "conn_31ca3d841ed240::loan_accounts",
+    "select": [
+     "conn_31ca3d841ed240::loan_accounts::loan_id"
+    ],
+    "cohort": "active",
+    "terms": [
+     {
+      "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+      "negate": false
+     }
+    ]
+   },
+   {
+    "entity": "csv_clean::customer_master",
+    "select": [
+     "csv_clean::customer_master::CUSTOMER_ID",
+     "csv_clean::customer_master::CUSTOMER_NAME",
+     "csv_clean::customer_master::SEGMENT"
+    ],
+    "cohort": "active"
+   }
+  ],
+  "expected": [
+   10,
+   [
+    "LN0091",
+    "LN0092",
+    "LN0093",
+    "LN0094",
+    "LN0095",
+    "LN0096",
+    "LN0097",
+    "LN0098",
+    "LN0100"
+   ],
+   [
+    "C0091",
+    "C0092",
+    "C0095",
+    "C0102",
+    "C0106",
+    "C0109",
+    "C0110",
+    "C0112",
+    "C0118"
+   ]
+  ]
+ }
+]

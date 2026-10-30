@@ -1,0 +1,24 @@
+{
+  "schema": "binggio_poc",
+  "mode": "bounded_read_only_snapshot",
+  "tables": [
+    {
+      "table": "loan_accounts",
+      "row_count": 100,
+      "columns": 10
+    },
+    {
+      "table": "loan_delinquency",
+      "row_count": 300,
+      "columns": 6
+    },
+    {
+      "table": "loan_repayments",
+      "row_count": 600,
+      "columns": 7
+    }
+  ],
+  "max_rows_per_table": 2500,
+  "not_live": true,
+  "registered_connection": null
+}

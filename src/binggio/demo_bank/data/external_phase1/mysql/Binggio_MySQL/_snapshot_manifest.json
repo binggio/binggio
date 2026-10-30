@@ -1,0 +1,35 @@
+{
+  "adapter": "mysql",
+  "dataset": "Binggio_MySQL",
+  "mode": "bounded_read_only_snapshot",
+  "not_live": true,
+  "generated_at_utc": "2026-10-18T09:29:33.202264+00:00",
+  "tables": [
+    {
+      "table": "customer_interactions",
+      "rows": 360,
+      "columns": 9,
+      "sha256": "e881607f1c79bbc94b226b07d97dc613e84ab495fa1efe50d11778ca233059c8"
+    },
+    {
+      "table": "fraud_alerts",
+      "rows": 300,
+      "columns": 8,
+      "sha256": "3f52aa03ea3244ffd2dc4895c1b4ae1b29f495958c241066e2ff62a2d8ed1cf9"
+    },
+    {
+      "table": "merchants",
+      "rows": 40,
+      "columns": 6,
+      "sha256": "f7f8925c4aa0490401f9561e847c6d9a07b0fdbcd28c3c32d77e86991106505b"
+    },
+    {
+      "table": "payment_disputes",
+      "rows": 240,
+      "columns": 9,
+      "sha256": "4f01717eb443d0d5dbc39a9a9d3bf893fda00f795d9d5e625bfb417b426a49ea"
+    }
+  ],
+  "schema_contract": "binggio-phase1-v1",
+  "relative_catalog_path": "external_phase1/mysql/Binggio_MySQL"
+}

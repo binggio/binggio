@@ -1,0 +1,25 @@
+dealer_id,dealer_name,city,region,tier,opened_on
+DL001,Pune Motors 1,Pune,WEST,SILVER,2010-05-01
+DL002,Delhi Motors 2,Delhi,NORTH,BRONZE,2010-08-29
+DL003,Jaipur Motors 3,Jaipur,NORTH,GOLD,2010-12-27
+DL004,Chennai Motors 4,Chennai,SOUTH,SILVER,2011-04-26
+DL005,Bengaluru Motors 5,Bengaluru,SOUTH,BRONZE,2011-08-24
+DL006,Kolkata Motors 6,Kolkata,EAST,GOLD,2011-12-22
+DL007,Hyderabad Motors 7,Hyderabad,SOUTH,SILVER,2012-04-20
+DL008,Mumbai Motors 8,Mumbai,WEST,BRONZE,2012-08-18
+DL009,Pune Motors 9,Pune,WEST,GOLD,2012-12-16
+DL010,Delhi Motors 10,Delhi,NORTH,SILVER,2013-04-15
+DL011,Jaipur Motors 11,Jaipur,NORTH,BRONZE,2013-08-13
+DL012,Chennai Motors 12,Chennai,SOUTH,GOLD,2013-12-11
+DL013,Bengaluru Motors 13,Bengaluru,SOUTH,SILVER,2014-04-10
+DL014,Kolkata Motors 14,Kolkata,EAST,BRONZE,2014-08-08
+DL015,Hyderabad Motors 15,Hyderabad,SOUTH,GOLD,2014-12-06
+DL016,Mumbai Motors 16,Mumbai,WEST,SILVER,2015-04-05
+DL017,Pune Motors 17,Pune,WEST,BRONZE,2015-08-03
+DL018,Delhi Motors 18,Delhi,NORTH,GOLD,2015-12-01
+DL019,Jaipur Motors 19,Jaipur,NORTH,SILVER,2016-03-30
+DL020,Chennai Motors 20,Chennai,SOUTH,BRONZE,2016-07-28
+DL021,Bengaluru Motors 21,Bengaluru,SOUTH,GOLD,2016-11-25
+DL022,Kolkata Motors 22,Kolkata,EAST,SILVER,2017-03-25
+DL023,Hyderabad Motors 23,Hyderabad,SOUTH,BRONZE,2017-07-23
+DL024,Mumbai Motors 24,Mumbai,WEST,GOLD,2017-11-20

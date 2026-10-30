@@ -1,0 +1,37 @@
+{
+  "kind": "mysql",
+  "name": "Binggio MySQL",
+  "account": "",
+  "project": "",
+  "database": "binggio_poc",
+  "schema_name": "",
+  "warehouse": "",
+  "role": "BINGGIO_READER",
+  "location": "asia-south1",
+  "tables": [
+    "customer_interactions",
+    "fraud_alerts",
+    "merchants",
+    "payment_disputes"
+  ],
+  "host": "127.0.0.1",
+  "port": "3307",
+  "auth_mode": "Binggio Secrets Manager",
+  "path": "",
+  "bucket": "",
+  "prefix": "",
+  "region": "",
+  "endpoint": "",
+  "status": "snapshot_registered",
+  "connection_id": "conn_a124aae5526444",
+  "last_sync_at": "2026-10-18T09:29:33.268421+00:00",
+  "last_tables": [
+    "customer_interactions",
+    "fraud_alerts",
+    "merchants",
+    "payment_disputes"
+  ],
+  "profile_id": "mysql_binggio_mysql",
+  "created_at": "2026-10-18T09:29:33.269204+00:00",
+  "updated_at": "2026-10-18T09:29:33.269221+00:00"
+}

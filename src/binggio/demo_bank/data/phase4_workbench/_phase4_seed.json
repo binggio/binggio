@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "seed": 41226,
+  "table_count": 60,
+  "source_counts": {
+    "csv_clean": 20,
+    "sqlite_imperfect": 20,
+    "csv_messy": 20
+  },
+  "synthetic_only": true
+}

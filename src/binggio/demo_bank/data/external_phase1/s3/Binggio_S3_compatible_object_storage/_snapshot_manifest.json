@@ -1,0 +1,35 @@
+{
+  "adapter": "s3",
+  "dataset": "Binggio_S3_compatible_object_storage",
+  "mode": "bounded_read_only_snapshot",
+  "not_live": true,
+  "generated_at_utc": "2026-10-18T10:20:04.080628+00:00",
+  "tables": [
+    {
+      "table": "branch_compliance_audits",
+      "rows": 180,
+      "columns": 7,
+      "sha256": "628635a80c63520793ba8eb077703e567fcbc81755e1e998fb9b283b6348b5f2"
+    },
+    {
+      "table": "cash_deliveries",
+      "rows": 220,
+      "columns": 7,
+      "sha256": "f860aeb0e560358dd50dd6ada5cf511b351fb5f40d8b3be25c7c5451901f9e8b"
+    },
+    {
+      "table": "environmental_readings",
+      "rows": 240,
+      "columns": 8,
+      "sha256": "2532230d14a16128dc5042854783e0a166903a9f6839c1077e6c72f101b4a308"
+    },
+    {
+      "table": "logistics_partners",
+      "rows": 32,
+      "columns": 5,
+      "sha256": "e8cc2df39a6014635dea7042954f7582fd1aef1b6225ec4996168e4b49cca237"
+    }
+  ],
+  "schema_contract": "binggio-phase1-v1",
+  "relative_catalog_path": "external_phase1/s3/Binggio_S3_compatible_object_storage"
+}

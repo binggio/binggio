@@ -1,0 +1,8 @@
+supplier_id,supplier_name,country,quality_rating
+SP01,Sundaram Brakes,India,4.6
+SP02,Bosch Mobility,Germany,4.8
+SP03,Lucas Electrical,India,4.1
+SP04,Exide Energy,India,4.3
+SP05,CATL Modules,China,4.5
+SP06,Denso Systems,Japan,4.7
+SP07,Valeo Transmission,France,4.2

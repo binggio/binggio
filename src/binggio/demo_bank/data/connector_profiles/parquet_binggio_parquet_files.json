@@ -1,0 +1,39 @@
+{
+  "kind": "parquet",
+  "name": "Binggio Parquet files",
+  "account": "",
+  "project": "",
+  "database": "",
+  "schema_name": "operations_poc",
+  "warehouse": "",
+  "role": "BINGGIO_READER",
+  "location": "asia-south1",
+  "tables": [
+    "branch_devices",
+    "branches",
+    "customer_branch_visits",
+    "device_incidents",
+    "vendor_sla"
+  ],
+  "host": "",
+  "port": "",
+  "auth_mode": "",
+  "path": "operations_v1",
+  "bucket": "",
+  "prefix": "",
+  "region": "",
+  "endpoint": "",
+  "status": "snapshot_registered",
+  "connection_id": "conn_c63b1ec5684c47",
+  "last_sync_at": "2026-10-18T09:37:40.435658+00:00",
+  "last_tables": [
+    "branch_devices",
+    "branches",
+    "customer_branch_visits",
+    "device_incidents",
+    "vendor_sla"
+  ],
+  "profile_id": "parquet_binggio_parquet_files",
+  "created_at": "2026-10-18T09:37:40.436425+00:00",
+  "updated_at": "2026-10-18T09:37:40.436441+00:00"
+}

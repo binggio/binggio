@@ -1,0 +1,46 @@
+RECORD_ID,customer_code,NOTE_TEXT,CREATED_AT
+06-00001, c0056 ,,2026/04/16
+06-00002,C0063,Billing clarification,2026-04-23
+06-00003,C0070,Product enquiry,2026-04-30
+06-00004,C0077,Satisfied with support,2026-05-07
+06-00005,C0084,Service response requested,2026-05-14
+06-00006,C0091,Billing clarification,2026-05-21
+06-00007,C0098,Product enquiry,2026-05-28
+06-00008,C0105,Satisfied with support,2026-06-04
+06-00009,C0112,Service response requested,2026-06-11
+06-00010,C0119,Billing clarification,2026-06-18
+06-00011,C0006,Product enquiry,2026-06-25
+06-00012, c0013 ,Satisfied with support,2026-07-02
+06-00013,C0020,Service response requested,2026-07-09
+06-00014,C0027,,2026-07-16
+06-00015,C0034,Product enquiry,2026-07-23
+06-00016,C0041,Satisfied with support,2026-07-30
+06-00017,C0048,Service response requested,2026-08-06
+06-00018,C0055,Billing clarification,2026/08/13
+06-00019,C0062,Product enquiry,2026-08-20
+06-00020,C0069,Satisfied with support,2026-08-27
+06-00021,C0076,Service response requested,2026-09-03
+06-00022,C0083,Billing clarification,2026-09-10
+06-00023, c0090 ,Product enquiry,2026-09-17
+06-00024,C0097,Satisfied with support,2026-01-07
+06-00025,C0104,Service response requested,2026-01-14
+06-00026,C0111,Billing clarification,2026-01-21
+06-00027,C0118,,2026-01-28
+06-00028,C0005,Satisfied with support,2026-02-04
+06-00029,C0012,Service response requested,2026-02-11
+06-00030,C0019,Billing clarification,2026-02-18
+06-00031,C0026,Product enquiry,2026-02-25
+06-00032,C0033,Satisfied with support,2026-03-04
+06-00033,C0040,Service response requested,2026-03-11
+06-00034, c0047 ,Billing clarification,2026-03-18
+06-00035,C0054,Product enquiry,2026/03/25
+06-00036,C0061,Satisfied with support,2026-04-01
+06-00037,C0068,Service response requested,2026-04-08
+06-00038,C0075,Billing clarification,2026-04-15
+06-00039,C0082,Product enquiry,2026-04-22
+06-00040,C0089,,2026-04-29
+06-00041,C0096,Service response requested,2026-05-06
+06-00042,C0103,Billing clarification,2026-05-13
+06-00043,C0110,Product enquiry,2026-05-20
+06-00044,C0117,Satisfied with support,2026-05-27
+06-00045, c0004 ,Service response requested,2026-06-03

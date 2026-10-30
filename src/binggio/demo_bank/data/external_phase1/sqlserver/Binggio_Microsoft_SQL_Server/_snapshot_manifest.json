@@ -1,0 +1,29 @@
+{
+  "adapter": "sqlserver",
+  "dataset": "Binggio_Microsoft_SQL_Server",
+  "mode": "bounded_read_only_snapshot",
+  "not_live": true,
+  "generated_at_utc": "2026-10-18T08:43:47.935384+00:00",
+  "tables": [
+    {
+      "table": "account_status_history",
+      "rows": 300,
+      "columns": 5,
+      "sha256": "9d08a2989a66411329affa6f3214420f72106e762c5053a70344682e31d30640"
+    },
+    {
+      "table": "account_transactions",
+      "rows": 600,
+      "columns": 7,
+      "sha256": "5c82dac67b50425222ed09b0e23d37781ca9686760414b7031ccd8511cc84eff"
+    },
+    {
+      "table": "customer_accounts",
+      "rows": 100,
+      "columns": 7,
+      "sha256": "175b3e4ef570be9e4e7109d802b5f5720838113c2bcd1e07e9c949fe11cc3576"
+    }
+  ],
+  "schema_contract": "binggio-phase1-v1",
+  "relative_catalog_path": "external_phase1/sqlserver/Binggio_Microsoft_SQL_Server"
+}

@@ -1,0 +1,1096 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later. Copyright (C) 2026 Ashish Kumar. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binggio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Cg fill='none' stroke='%2312131a' stroke-width='13' stroke-linejoin='round'%3E%3Cpath d='M6.5 41V10.5a4 4 0 0 1 4-4H41'/%3E%3Cpath d='M67 6.5h30.5a4 4 0 0 1 4 4V41'/%3E%3Cpath d='M101.5 67v30.5a4 4 0 0 1-4 4H67'/%3E%3Cpath d='M41 101.5H10.5a4 4 0 0 1-4-4V67'/%3E%3C/g%3E%3Ccircle cx='54' cy='54' r='17.5' fill='%234b3fd8'/%3E%3C/svg%3E">
+<style>
+:root{
+  --paper:#f4f6f9; --panel:#ffffff; --line:#dfe4ec; --line2:#eef1f5;
+  --ink:#14233a; --muted:#5f6f84; --faint:#8a97a8;
+  --nav:#101f36; --nav2:#1a2c48; --navink:#c9d4e4;
+  --blue:#4b3fd8; --blue2:#eeedfc; --dot:#4b3fd8; --dotnav:#8b83f0;
+  --green:#13846e; --green2:#e3f3ef;
+  --amber:#ae6910; --amber2:#fbf0df;
+  --red:#b4232f; --red2:#fbe7e9;
+  --slate:#7b8798; --slate2:#eef0f3;
+  --r:10px;
+  --font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Roboto,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:14px/1.5 var(--font);color:var(--ink);background:var(--paper);font-variant-numeric:tabular-nums}
+a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+h1{font-size:22px;line-height:1.25;font-weight:650;margin:0}
+h2{font-size:16px;font-weight:650;margin:0 0 10px}
+h3{font-size:14px;font-weight:650;margin:0 0 6px}
+p{margin:0 0 10px}
+.muted{color:var(--muted)} .faint{color:var(--faint)} .small{font-size:12.5px}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+nav.side{background:var(--nav);color:var(--navink);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:18px 18px 10px;color:#fff}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:-.02em;line-height:1}
+.logo svg{flex:none}
+.logo sup{font-size:9px;font-weight:500;letter-spacing:0;margin-left:-6px;align-self:flex-start;opacity:.8}
+.brand small{display:block;font-weight:400;font-size:12.5px;color:var(--navink);opacity:.85;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+nav.side a{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--navink);padding:9px 18px;border-left:3px solid transparent}
+nav.side a:hover{background:var(--nav2);text-decoration:none;color:#fff}
+nav.side a.on{background:var(--nav2);color:#fff;border-left-color:var(--dotnav)}
+nav.side .grow{flex:1}
+nav.side .foot{padding:12px 18px;font-size:12px;opacity:.75}
+.badge{background:#ffb84d;color:#2b1a00;border-radius:999px;font-size:11.5px;font-weight:700;padding:0 7px;min-width:20px;text-align:center}
+main{min-width:0}
+.top{display:flex;align-items:center;gap:12px;padding:14px 26px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+.top h1{flex:1}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--panel);font-size:12.5px;cursor:pointer;white-space:nowrap}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--slate)}
+.chip.ok .dot{background:var(--green)} .chip.warn .dot{background:var(--amber)}
+.page{padding:22px 26px 60px;max-width:1280px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:16px}
+.panel.flush{padding:0}
+.panel>.head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.panel>.head h2{margin:0;flex:1}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:550;white-space:nowrap}
+.btn:hover{border-color:#b9c4d4}
+.btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.primary:hover{background:#3c31c0}
+.btn.good{background:var(--green);border-color:var(--green);color:#fff}
+.btn.bad{color:var(--red);border-color:#efc4c8}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--blue);padding:4px 6px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sm{padding:3px 9px;font-size:12.5px}
+input[type=text],input[type=password],input[type=number],select,textarea{border:1px solid var(--line);border-radius:8px;padding:6px 9px;background:#fff;min-width:0}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);outline:none;box-shadow:0 0 0 3px var(--blue2)}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted)}
+label.f>input,label.f>select{color:var(--ink);font-size:14px}
+.fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin:12px 0}
+table.t{width:100%;border-collapse:collapse}
+table.t th{text-align:left;font-weight:600;font-size:12.5px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line);background:#fafbfd;position:sticky;top:0}
+table.t td{padding:7px 10px;border-bottom:1px solid var(--line2);vertical-align:top}
+table.t tr:hover td{background:#fafbfd}
+table.t td.num,table.t th.num{text-align:right}
+.scroll{overflow:auto;max-height:560px}
+.pill{display:inline-block;border-radius:6px;padding:1px 8px;font-size:12px;font-weight:600;white-space:nowrap}
+.s-approved{background:var(--green2);color:var(--green)}
+.s-pending,.s-draft{background:var(--amber2);color:var(--amber)}
+.s-stale{background:var(--red2);color:var(--red)}
+.s-rejected,.s-revoked,.s-not_profiled{background:var(--slate2);color:var(--slate)}
+.s-profiled{background:var(--green2);color:var(--green)}
+.k-entity,.k-reference{background:var(--blue2);color:var(--blue)}
+.k-extends,.k-records{background:var(--green2);color:var(--green)}
+.k-duplicate{background:var(--red2);color:var(--red)}
+.k-standalone{background:var(--slate2);color:var(--slate)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto}
+.tabs a{white-space:nowrap}
+.tabs a{padding:8px 14px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:550}
+.tabs a.on{color:var(--ink);border-bottom-color:var(--blue)}
+.tabs a:hover{text-decoration:none;color:var(--ink)}
+.tabs .n{color:var(--faint);font-weight:400;margin-left:4px}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid var(--line);border-radius:var(--r);background:var(--panel);margin-bottom:16px}
+.stat{padding:14px 18px;border-right:1px solid var(--line2)} .stat:last-child{border-right:0}
+.stat b{display:block;font-size:26px;font-weight:650;line-height:1.1}
+.stat span{color:var(--muted);font-size:12.5px}
+.stat.warn b{color:var(--amber)} .stat.bad b{color:var(--red)} .stat.good b{color:var(--green)}
+ol.steps{list-style:none;padding:0;margin:0;counter-reset:s}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:30px 1fr auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line2)}
+ol.steps li:last-child{border-bottom:0}
+ol.steps li::before{content:counter(s);width:26px;height:26px;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--line);color:var(--muted);font-weight:650;font-size:13px}
+ol.steps li.done::before{content:"✓";background:var(--green);border-color:var(--green);color:#fff}
+ol.steps li.now::before{border-color:var(--blue);color:var(--blue)}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.toast{position:fixed;right:22px;bottom:22px;z-index:50;display:flex;flex-direction:column;gap:8px}
+.toast div{background:var(--ink);color:#fff;padding:10px 14px;border-radius:8px;max-width:420px;box-shadow:0 6px 24px rgba(16,31,54,.25)}
+.toast div.err{background:var(--red)}
+.modal-bg{position:fixed;inset:0;background:rgba(16,31,54,.45);z-index:40;display:grid;place-items:center;padding:16px}
+.modal{background:var(--panel);border-radius:12px;width:min(640px,100%);max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(16,31,54,.35)}
+.modal .mh{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center}
+.modal .mh h2{flex:1;margin:0}
+.modal .mb{padding:14px 18px;overflow:auto}
+.modal .mf{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end;align-items:center}
+.fs a{display:flex;gap:8px;padding:6px 8px;border-radius:6px;color:var(--ink)} .fs a:hover{background:var(--paper);text-decoration:none}
+.fs .ico{width:18px;text-align:center;color:var(--faint)}
+.fs a.sel{background:var(--blue2);color:var(--blue)} .fs a input{margin:0 4px 0 2px;pointer-events:none}
+.fs:focus{outline:none}
+.job{border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;background:#fafbfd;margin-top:12px}
+.job li{list-style:none;padding:3px 0}
+.job li::before{display:inline-block;width:20px;content:"○";color:var(--faint)}
+.job li.running::before{content:"◐";color:var(--blue);animation:spin 1s linear infinite}
+.job li.done::before{content:"✓";color:var(--green)}
+.job li.failed::before{content:"✕";color:var(--red)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.job li.running::before{animation:none}}
+.err-box{background:var(--red2);color:var(--red);border-radius:8px;padding:10px 12px;margin:10px 0}
+.note-box{background:var(--blue2);color:#2e2690;border-radius:8px;padding:10px 12px;margin:10px 0}
+.warn-box{background:var(--amber2);color:#7a4a08;border-radius:8px;padding:10px 12px;margin:10px 0}
+.split{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
+.list a{display:block;padding:6px 10px;border-radius:6px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list a:hover{background:var(--paper);text-decoration:none} .list a.on{background:var(--blue2);color:var(--blue);font-weight:600}
+.list .grp{font-size:12px;color:var(--muted);padding:10px 10px 4px;font-weight:600}
+/* ask */
+.ask{display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:start}
+.thread{display:flex;flex-direction:column;gap:14px}
+.q{align-self:flex-end;background:var(--blue);color:#fff;padding:10px 14px;border-radius:14px 14px 4px 14px;max-width:80%}
+.a{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.a .ah{padding:12px 16px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.a .ah b{font-size:15px}
+.a .tablewrap{max-height:380px;overflow:auto;border-top:1px solid var(--line2)}
+.prov{border-top:1px solid var(--line);background:#f7f9fc;padding:12px 16px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px}
+.prov dt{color:var(--muted)} .prov dd{margin:0}
+.prov .src{display:inline-block;background:#fff;border:1px solid var(--line);border-radius:6px;padding:0 7px;margin:0 4px 4px 0}
+.prov .term{display:block;margin-bottom:3px}
+.refusal{border-color:#efc4c8} .refusal .ah{background:var(--red2)}
+.composer{position:sticky;bottom:0;background:var(--paper);padding:12px 0 4px;display:flex;gap:8px}
+.composer textarea{flex:1;resize:none;height:46px;padding:11px 12px;border-radius:10px}
+.samples button{display:block;width:100%;text-align:left;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 10px;margin-bottom:6px;cursor:pointer;font-size:13px}
+.samples button:hover{border-color:var(--blue)}
+details summary{cursor:pointer;color:var(--blue)}
+pre{white-space:pre-wrap;word-break:break-word;background:#f3f5f8;border-radius:6px;padding:8px;font-size:12px;margin:6px 0 0}
+/* start */
+.start{min-height:100vh;display:grid;grid-template-columns:minmax(300px,440px) 1fr}
+.start .left{background:var(--nav);color:var(--navink);padding:48px 40px;display:flex;flex-direction:column;gap:16px}
+.start .left h1{color:#fff;font-size:34px}
+.start .left p{max-width:34ch}
+.start .right{padding:48px 44px;max-width:760px}
+.choice{display:grid;grid-template-columns:1fr auto;gap:6px 16px;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)}
+.choice p{margin:0;grid-column:1}
+.choice .btn{grid-row:1 / span 2;grid-column:2}
+/* graph */
+.graph{position:relative;height:640px;background:#fbfcfe;border-radius:var(--r);overflow:hidden}
+.graph svg{width:100%;height:100%;cursor:grab}
+.graph text{font-size:11px;fill:var(--ink);pointer-events:none}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:22px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
+.side-panel{position:absolute;right:12px;top:12px;width:300px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;box-shadow:0 8px 30px rgba(16,31,54,.15)}
+
+/* story */
+.story{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.fact{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;display:flex;flex-direction:column;gap:8px}
+.fact.headline{grid-column:1 / -1;background:var(--nav);border-color:var(--nav);color:#fff}
+.fact.headline h2{font-size:26px;line-height:1.25;color:#fff;margin:0}
+.fact.headline .why{color:var(--navink)}
+.fact .kind{font-size:12.5px;color:var(--muted);font-weight:600}
+.fact h2{font-size:17px;line-height:1.35;margin:0}
+.fact .why{font-size:12.5px;color:var(--muted)}
+.bars{display:grid;grid-template-columns:minmax(80px,max-content) 1fr auto;gap:5px 10px;align-items:center;font-size:12.5px;margin-top:4px}
+.bars .track{height:14px;background:var(--line2);border-radius:3px;overflow:hidden}
+.bars .fill{height:100%;background:var(--blue);border-radius:3px}
+.bars .fill.top{background:var(--green)}
+.bars .v{color:var(--muted);text-align:right}
+.spark{width:100%;height:120px}
+.from{font-size:12px;color:var(--faint)}
+@media (max-width:980px){.story{grid-template-columns:1fr}}
+@media (max-width:980px){
+  .app{grid-template-columns:1fr} nav.side{position:static;height:auto;flex-direction:row;flex-wrap:wrap} nav.side .grow,nav.side .foot{display:none}
+  .stats{grid-template-columns:repeat(2,1fr)} .grid2,.grid3,.split,.ask,.start{grid-template-columns:1fr}
+  .page{padding:16px} .top{padding:12px 16px;flex-wrap:wrap} .graph{height:480px}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div class="toast" id="toast"></div>
+<script>
+'use strict';
+const TOKEN = '__BINGGIO_TOKEN__';
+const LOGO = (size, ink, dot) => `<svg width="${size}" height="${size}" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108"><g fill="none" stroke="${ink}" stroke-width="13" stroke-linejoin="round"><path d="M6.5 41V10.5a4 4 0 0 1 4-4H41"/><path d="M67 6.5h30.5a4 4 0 0 1 4 4V41"/><path d="M101.5 67v30.5a4 4 0 0 1-4 4H67"/><path d="M41 101.5H10.5a4 4 0 0 1-4-4V67"/></g><circle cx="54" cy="54" r="17.5" fill="${dot}"/></svg>`;
+
+const $ = (s, el=document) => el.querySelector(s);
+const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => n == null ? '–' : Number(n).toLocaleString();
+const store = {get(k,d){try{const v=localStorage.getItem('binggio.'+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+               set(k,v){try{localStorage.setItem('binggio.'+k,JSON.stringify(v))}catch(e){}}};
+
+async function api(path, body) {
+  const opt = {headers: {'X-Binggio-Token': TOKEN}};
+  if (body !== undefined) { opt.method = 'POST'; opt.body = JSON.stringify(body); opt.headers['Content-Type'] = 'application/json'; }
+  let r;
+  try { r = await fetch(path, opt); } catch (e) { throw new Error('Binggio is not running. Start it again with: binggio ui'); }
+  const data = await r.json().catch(() => ({error: 'Unexpected reply from Binggio'}));
+  if (!r.ok) throw new Error(data.error || ('Error ' + r.status));
+  return data;
+}
+function toast(msg, err) {
+  const d = document.createElement('div'); d.textContent = msg; if (err) d.className = 'err';
+  $('#toast').appendChild(d); setTimeout(() => d.remove(), err ? 7000 : 3500);
+}
+const fail = e => toast(e.message || String(e), true);
+
+const ROLE = {PRIMARY_KEY_CANDIDATE:'Primary key', FOREIGN_KEY_CANDIDATE:'Foreign key', IDENTIFIER:'Identifier', MEASURE:'Measure',
+  DATE:'Date', CLASSIFICATION:'Category', STATUS:'Status', TEXT:'Text', UNKNOWN:'Unknown'};
+const ROLES = Object.keys(ROLE);
+const STATUS = {approved:'Approved', pending:'Waiting', rejected:'Rejected', stale:'Data changed', revoked:'Revoked', draft:'Draft',
+  profiled:'Profiled', not_profiled:'Not profiled'};
+const pill = s => `<span class="pill s-${esc(s)}">${esc(STATUS[s] || s)}</span>`;
+const KIND = {entity:'New entity', extends:'Adds columns', duplicate:'Duplicate', records:'Records', reference:'Lookup list', standalone:'Not linked'};
+const CARD = {many_to_one:'Many to one', one_to_one:'One to one', one_to_many:'One to many', many_to_many:'Many to many'};
+const SRC = {csv:'CSV folder', excel:'Excel workbook', sqlite:'SQLite', sqlserver:'SQL Server', oracle:'Oracle', postgres:'PostgreSQL', postgresql:'PostgreSQL', csv_folder:'CSV folder'};
+
+let S = {state: null, overview: null};
+
+/* ------------------------------------------------------------------ reviewer name */
+function reviewer() { return store.get('by', ''); }
+async function needReviewer() {
+  if (reviewer()) return reviewer();
+  const name = await askText('Your name', 'Every approval is recorded with the name of the person who made it.', 'Name', '');
+  if (!name) throw new Error('A name is needed to record decisions');
+  store.set('by', name.trim()); renderTop(); return name.trim();
+}
+
+/* ------------------------------------------------------------------ modals */
+function modal(title, bodyHtml, buttons) {
+  return new Promise(resolve => {
+    const bg = document.createElement('div'); bg.className = 'modal-bg';
+    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="mh"><h2>${esc(title)}</h2>
+      <button class="btn ghost" data-x aria-label="Close">✕</button></div><div class="mb">${bodyHtml}</div><div class="mf"></div></div>`;
+    const close = v => { bg.remove(); resolve(v); };
+    for (const [label, cls, val] of buttons) {
+      const b = document.createElement('button'); b.className = 'btn ' + (cls || ''); b.textContent = label;
+      b.onclick = () => close(typeof val === 'function' ? val(bg) : val); $('.mf', bg).appendChild(b);
+    }
+    $('[data-x]', bg).onclick = () => close(null);
+    bg.addEventListener('keydown', e => { if (e.key === 'Escape') close(null); });
+    bg.addEventListener('mousedown', e => { if (e.target === bg) close(null); });
+    document.body.appendChild(bg);
+    (bg.querySelector('input,select,textarea,.mf .primary') || bg.querySelector('button')).focus();
+    bg._close = close;
+  });
+}
+function askText(title, help, label, value, type) {
+  return modal(title, `<p class="muted">${esc(help)}</p><label class="f">${esc(label)}<input type="${type||'text'}" id="m-in" value="${esc(value)}"></label>`,
+    [['Cancel', '', null], ['Save', 'primary', bg => $('#m-in', bg).value.trim() || null]]);
+}
+function confirmBox(title, text, ok) { return modal(title, `<p>${text}</p>`, [['Cancel', '', false], [ok || 'Continue', 'primary', true]]); }
+
+/* File and folder picker (the browser cannot see paths, so Binggio lists them).
+   In CSV mode several files can be chosen: click, Ctrl+click, Shift+click, Ctrl+A.
+   Resolves to a path, an array of paths (several files) or null. */
+function pick(want, ext, start) {
+  return new Promise(resolve => {
+    const multi = want === 'csvdir';
+    let current = start || store.get('lastdir', '') || (S.state && S.state.home) || '';
+    let files = [], chosen = new Set(), anchor = null;
+    const bg = document.createElement('div'); bg.className = 'modal-bg';
+    const title = want === 'file' ? 'Choose a file' : multi ? 'Choose a folder of CSV files, or select files' : 'Choose a folder';
+    bg.innerHTML = `<div class="modal"><div class="mh"><h2>${title}</h2><button class="btn ghost" data-x aria-label="Close">✕</button></div>
+      <div class="mb"><div class="row" style="margin-bottom:8px"><input type="text" id="fs-path" style="flex:1"><button class="btn" id="fs-go">Go</button></div>
+      <div class="row small" id="fs-roots" style="margin-bottom:8px"></div>
+      ${multi ? '<p class="muted small" style="margin:0 0 6px">Click a file to select it. Ctrl+click adds or removes one, Shift+click selects a range, Ctrl+A selects all.</p>' : ''}
+      <div class="fs" id="fs-list" tabindex="-1"></div></div>
+      <div class="mf"><span class="muted small" id="fs-info" style="flex:1"></span><button class="btn" data-x>Cancel</button>
+      ${multi ? '<button class="btn" id="fs-files" disabled>Use selected files</button>' : ''}
+      ${want !== 'file' ? '<button class="btn primary" id="fs-use">Use this folder</button>' : ''}</div></div>`;
+    document.body.appendChild(bg);
+    const close = v => {
+      bg.remove();
+      if (v) store.set('lastdir', Array.isArray(v) ? v[0].replace(/[\\/][^\\/]*$/, '') : want === 'file' ? v.replace(/[\\/][^\\/]*$/, '') : v);
+      resolve(v);
+    };
+    $$('[data-x]', bg).forEach(b => b.onclick = () => close(null));
+    const paint = () => {
+      $$('[data-f]', bg).forEach(a => { const on = chosen.has(a.dataset.f); a.classList.toggle('sel', on); a.setAttribute('aria-selected', on); const c = a.querySelector('input'); if (c) c.checked = on; });
+      if (multi) {
+        const n = chosen.size, b = $('#fs-files', bg);
+        b.disabled = !n; b.textContent = n ? `Use ${n} selected file${n === 1 ? '' : 's'}` : 'Use selected files';
+        b.classList.toggle('primary', n > 0); $('#fs-use', bg).classList.toggle('primary', !n);
+      }
+    };
+    bg.addEventListener('keydown', e => {
+      if (e.key === 'Escape') return close(null);
+      if (multi && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a' && e.target.id !== 'fs-path') {
+        e.preventDefault(); chosen = new Set(files); paint();
+      }
+    });
+    const load = async p => {
+      try {
+        const d = await api('/api/fs?want=' + want + '&ext=' + encodeURIComponent(ext || '') + '&path=' + encodeURIComponent(p || ''));
+        current = d.path; $('#fs-path', bg).value = d.path; chosen = new Set(); anchor = null;
+        files = d.entries.filter(e => e.type === 'file').map(e => e.path);
+        $('#fs-roots', bg).innerHTML = [`<a href="#" data-p="${esc(d.home)}">Home</a>`, ...d.roots.map(r => `<a href="#" data-p="${esc(r)}">${esc(r)}</a>`)].join(' · ');
+        $('#fs-list', bg).innerHTML = (d.parent ? `<a href="#" data-p="${esc(d.parent)}"><span class="ico">↰</span>Up one folder</a>` : '') +
+          d.entries.map(e => e.type === 'dir'
+            ? `<a href="#" data-p="${esc(e.path)}"><span class="ico">▸</span>${esc(e.name)}${e.workspace ? ' <span class="pill s-approved">workspace</span>' : ''}${e.csv ? ' <span class="pill k-entity">CSV</span>' : ''}</a>`
+            : `<a href="#" data-f="${esc(e.path)}" role="option" aria-selected="false">${multi ? '<input type="checkbox" tabindex="-1" aria-hidden="true">' : '<span class="ico">▫</span>'}${esc(e.name)} <span class="faint small">${fmt(Math.round(e.size/1024))} KB</span></a>`).join('') ||
+          '<div class="empty">Nothing to show here</div>';
+        $('#fs-info', bg).textContent = multi ? `${d.csv_here} CSV file${d.csv_here === 1 ? '' : 's'} in this folder` : (d.workspace_here ? 'This folder is a Binggio workspace' : '');
+        $$('[data-p]', bg).forEach(a => a.onclick = ev => { ev.preventDefault(); load(a.dataset.p); });
+        $$('[data-f]', bg).forEach(a => {
+          a.onclick = ev => {
+            ev.preventDefault();
+            if (!multi) return close(a.dataset.f);
+            const f = a.dataset.f;
+            if (ev.shiftKey && anchor) {
+              const i = files.indexOf(anchor), j = files.indexOf(f);
+              if (!(ev.ctrlKey || ev.metaKey)) chosen = new Set();
+              files.slice(Math.min(i, j), Math.max(i, j) + 1).forEach(x => chosen.add(x));
+            } else if (ev.ctrlKey || ev.metaKey || ev.target.tagName === 'INPUT') {
+              chosen.has(f) ? chosen.delete(f) : chosen.add(f); anchor = f;
+            } else { chosen = new Set([f]); anchor = f; }
+            paint();
+          };
+          a.ondblclick = ev => { ev.preventDefault(); if (multi) close([a.dataset.f]); };
+        });
+        paint(); $('#fs-list', bg).focus();
+      } catch (e) { fail(e); }
+    };
+    $('#fs-go', bg).onclick = () => load($('#fs-path', bg).value);
+    $('#fs-path', bg).addEventListener('keydown', e => { if (e.key === 'Enter') load(e.target.value); });
+    if ($('#fs-use', bg)) $('#fs-use', bg).onclick = () => close(current);
+    if ($('#fs-files', bg)) $('#fs-files', bg).onclick = () => chosen.size && close(files.filter(f => chosen.has(f)));
+    load(current);
+  });
+}
+
+/* ------------------------------------------------------------------ jobs */
+function watchJob(job, el, onDone) {
+  const draw = j => {
+    el.innerHTML = `<div class="job"><ul style="margin:0;padding:0">${j.steps.map(s => `<li class="${s.status}">${esc(s.name)}${s.detail ? ' · ' + esc(s.detail) : ''}</li>`).join('')}</ul>
+      ${j.status === 'failed' ? `<div class="err-box">${esc(j.error)}</div>` : ''}${j.status === 'done' ? `<p class="muted small" style="margin:8px 0 0">Finished in ${j.seconds} s</p>` : ''}</div>`;
+  };
+  draw(job);
+  const tick = async () => {
+    try {
+      const j = await api('/api/jobs/' + job.id); draw(j);
+      if (j.status === 'running') return setTimeout(tick, 700);
+      if (onDone) onDone(j);
+    } catch (e) { fail(e); }
+  };
+  setTimeout(tick, 500);
+}
+
+/* Feedback goes by email with the versions only: never data, table names or questions. */
+const CONTACT = 'ashish@binggio.com';
+function feedbackLink(subject) {
+  const st = S.state || {};
+  const body = `\n\n\n---\nBinggio ${st.version || ''} · Python ${st.python || ''} · ${st.platform || ''}\n(No data, table names or questions are included.)`;
+  return `mailto:${CONTACT}?subject=${encodeURIComponent(subject || 'Binggio feedback')}&body=${encodeURIComponent(body)}`;
+}
+
+/* ------------------------------------------------------------------ layout */
+const NAV = [['home','Overview'],['sources','Data sources'],['explore','Explore tables'],['onboard','Onboard a source'],
+  ['review','Review'],['graph','Relationship map'],['story','Data story'],['ask','Ask'],['activity','Activity'],['settings','Settings']];
+
+function shell() {
+  $('#root').innerHTML = `<div class="app"><nav class="side" aria-label="Main">
+    <div class="brand"><div class="logo" style="font-size:21px">${LOGO(22, "#fff", "var(--dotnav)")}<span>binggio</span><sup>TM</sup></div><small id="ws-name" style="margin-top:6px"></small></div>
+    ${NAV.map(([k, l]) => `<a href="#${k}" data-nav="${k}">${l}<span class="badge" id="badge-${k}" hidden></span></a>`).join('')}
+    <div class="grow"></div><div class="foot"><a href="#" id="switch-ws" style="padding:0;border:0;display:inline">Switch workspace</a><br><a href="#" id="feedback" style="padding:0;border:0;display:inline">Send feedback</a><br>Binggio ${esc(S.state.version)} · <a href="#settings" style="padding:0;border:0;display:inline">AGPL-3.0</a></div></nav>
+    <main><div class="top"><h1 id="title"></h1><span id="top-chips" class="row"></span></div><div class="page" id="page"></div></main></div>`;
+  $('#ws-name').textContent = S.state.name; $('#ws-name').title = S.state.workspace;
+  $('#switch-ws').onclick = e => { e.preventDefault(); startScreen(true); };
+  $('#feedback').onclick = e => { e.preventDefault(); location.href = feedbackLink(); };
+  renderTop();
+}
+function renderTop() {
+  const el = $('#top-chips'); if (!el) return;
+  const m = S.state.model, by = reviewer();
+  el.innerHTML = `<span class="chip ${m.configured ? 'ok' : 'warn'}" id="chip-model" title="Model used to read questions"><span class="dot"></span>${m.configured ? 'Model ready' : 'No model key'}</span>
+    <span class="chip ${by ? 'ok' : 'warn'}" id="chip-by"><span class="dot"></span>${by ? 'Reviewing as ' + esc(by) : 'Set your name'}</span>`;
+  $('#chip-model').onclick = () => location.hash = '#settings';
+  $('#chip-by').onclick = async () => { const n = await askText('Your name', 'Decisions you make are recorded with this name.', 'Name', by); if (n) { store.set('by', n); renderTop(); } };
+}
+async function refreshBadges() {
+  try {
+    const o = await api('/api/overview'); S.overview = o;
+    const wait = o.roles.pending + o.relationships.pending + o.roles.stale + o.relationships.stale;
+    const b = $('#badge-review'); if (b) { b.hidden = !wait; b.textContent = wait > 999 ? '999+' : wait; }
+  } catch (e) {}
+}
+function setPage(key, title) {
+  $$('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === key));
+  $('#title').textContent = title; document.title = title + ' · Binggio';
+  const p = $('#page'); p.innerHTML = '<div class="empty">Loading…</div>'; return p;
+}
+
+/* ------------------------------------------------------------------ router */
+const ROUTES = {home: pageHome, sources: pageSources, explore: pageExplore, onboard: pageOnboard, review: pageReview,
+  graph: pageGraph, story: pageStory, ask: pageAsk, activity: pageActivity, settings: pageSettings};
+async function route() {
+  if (!S.state) return;
+  if (!S.state.workspace) return startScreen();
+  if (!$('.app')) shell();
+  const [key, ...rest] = (location.hash.slice(1) || 'home').split('/').map(decodeURIComponent);
+  const fn = ROUTES[key] || pageHome;
+  try { await fn(...rest); } catch (e) { $('#page').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+  refreshBadges();
+}
+window.addEventListener('hashchange', route);
+
+/* ================================================================== start screen */
+function startScreen(switching) {
+  const recent = S.state.recent || [];
+  $('#root').innerHTML = `<div class="start"><div class="left"><h1 class="logo" style="font-size:40px">${LOGO(40, "#fff", "var(--dotnav)")}<span>binggio</span><sup style="font-size:12px">TM</sup></h1>
+    <p style="color:#fff;opacity:.85;margin:-4px 0 0 52px">Enterprise Context Intelligence</p>
+    <p>Answers from your data that use only the meanings a person has approved.</p>
+    <p class="small" style="opacity:.8">Binggio profiles your tables, suggests what each column means and how tables connect, and asks you to approve. Questions are answered only from what you approved, and refused with the reason when something is missing.</p>
+    <div class="grow" style="flex:1"></div><p class="small" style="opacity:.6">Runs on this computer only. Version ${esc(S.state.version)}. Binggio™ is a trademark of Ashish Kumar.</p></div>
+    <div class="right"><h2 style="font-size:20px">Get started</h2>
+    <div class="choice"><h3>Try the sample bank</h3><p class="muted">A synthetic bank of 63 tables from six systems, already reviewed, with ten questions you can run straight away.</p><button class="btn primary" id="go-demo">Create the sample bank</button></div>
+    <div class="choice"><h3>Start with your own data</h3><p class="muted">Create an empty workspace, then add CSV files, Excel workbooks or a database.</p><button class="btn" id="go-new">New workspace</button></div>
+    <div class="choice"><h3>Open a workspace</h3><p class="muted">A folder you created earlier with Binggio.</p><button class="btn" id="go-open">Open…</button></div>
+    ${recent.length ? `<h3 style="margin-top:24px">Recent</h3>${recent.map(p => `<div><a href="#" data-open="${esc(p)}">${esc(p)}</a></div>`).join('')}` : ''}
+    ${switching ? '<p style="margin-top:20px"><a href="#" id="go-back">Back to the current workspace</a></p>' : ''}
+    <div id="start-msg"></div></div></div>`;
+  const open = async (action, path) => {
+    try {
+      $('#start-msg').innerHTML = `<div class="note-box">${action === 'demo' ? 'Copying the sample bank…' : 'Opening…'}</div>`;
+      await api('/api/workspace', {action, path});
+      S.state = await api('/api/state'); S.overview = null; THREAD = []; CONV = null; store.set('conv', null); location.hash = action === 'demo' ? '#ask' : action === 'create' ? '#sources' : '#home';
+      $('#root').innerHTML = ''; route();
+    } catch (e) { $('#start-msg').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+  };
+  $('#go-demo').onclick = async () => {
+    const dir = await pick('dir', '', S.state.home); if (!dir) return;
+    const name = await askText('Name the sample bank folder', 'A new folder with this name is created inside ' + dir + '.', 'Folder name', 'binggio-sample-bank');
+    if (name) open('demo', dir.replace(/[\\/]+$/, '') + (dir.includes('\\') ? '\\' : '/') + name);
+  };
+  $('#go-new').onclick = async () => {
+    const dir = await pick('dir', '', S.state.home); if (!dir) return;
+    const name = await askText('Name the workspace', 'A new folder with this name is created inside ' + dir + '. Binggio keeps copies of your data, profiles and approvals there.', 'Workspace name', 'my-bank');
+    if (name) open('create', dir.replace(/[\\/]+$/, '') + (dir.includes('\\') ? '\\' : '/') + name);
+  };
+  $('#go-open').onclick = async () => { const dir = await pick('dir', ''); if (dir) open('open', dir); };
+  $$('[data-open]').forEach(a => a.onclick = e => { e.preventDefault(); open('open', a.dataset.open); });
+  if ($('#go-back')) $('#go-back').onclick = e => { e.preventDefault(); $('#root').innerHTML = ''; route(); };
+}
+
+/* ================================================================== overview */
+async function pageHome() {
+  const p = setPage('home', 'Overview');
+  const o = await api('/api/overview'); S.overview = o;
+  const st = o.status, ans = st.answerable || {};
+  const waiting = o.roles.pending + o.relationships.pending, stale = o.roles.stale + o.relationships.stale;
+  const steps = [
+    ['Add your data', 'CSV files, Excel workbooks, SQL Server, Oracle, PostgreSQL or SQLite.', o.sources.length > 0, '#sources', 'Add data'],
+    ['Approve column roles', 'Which columns are keys, amounts, dates and categories.', o.roles.approved > 0 && !o.roles.pending, '#review/roles', 'Review roles'],
+    ['Approve relationships', 'How the tables connect, including across sources.', o.relationships.approved > 0 && !o.relationships.pending, '#review/relationships', 'Review links'],
+    ['Ask questions', 'Answers use only what you approved.', (ans.tables || 0) > 0, '#ask', 'Ask'],
+  ];
+  const now = steps.findIndex(s => !s[2]);
+  p.innerHTML = `
+    <div class="stats">
+      <div class="stat"><b>${fmt(o.sources.length)}</b><span>sources</span></div>
+      <div class="stat"><b>${fmt(st.tables)}</b><span>tables</span></div>
+      <div class="stat good"><b>${fmt(ans.tables || 0)}</b><span>tables ready for questions</span></div>
+      <div class="stat ${waiting ? 'warn' : ''}"><b>${fmt(waiting)}</b><span>waiting for review</span></div>
+      <div class="stat ${stale ? 'bad' : ''}"><b>${fmt(stale)}</b><span>approvals where the data changed</span></div>
+    </div>
+    ${stale ? `<div class="warn-box">${fmt(stale)} approval${stale === 1 ? '' : 's'} no longer match the data because a source changed. Binggio will not answer from them until someone confirms them again. <a href="#review/roles/stale">Review them</a>.</div>` : ''}
+    <div class="grid2">
+      <div class="panel"><h2>What to do next</h2><ol class="steps">${steps.map((s, i) => `<li class="${s[2] ? 'done' : i === now ? 'now' : ''}">
+        <div><b>${s[0]}</b><div class="muted small">${s[1]}</div></div><a class="btn ${i === now ? 'primary' : ''} sm" href="${s[3]}">${s[4]}</a></li>`).join('')}</ol></div>
+      <div class="panel"><h2>Ready for questions</h2>
+        <table class="t"><tr><td>Tables</td><td class="num">${fmt(ans.tables || 0)}</td></tr><tr><td>Relationships</td><td class="num">${fmt(ans.relationships || 0)}</td></tr>
+        <tr><td>Business concepts</td><td class="num">${fmt(ans.concepts || 0)}</td></tr><tr><td>Business terms</td><td class="num">${fmt(ans.terms || 0)}</td></tr>
+        <tr><td>As-of date for date rules</td><td class="num">${esc(ans.as_of || 'not set')}</td></tr></table>
+        <p class="muted small" style="margin-top:10px">Column roles: ${fmt(o.roles.approved)} approved, ${fmt(o.roles.pending)} waiting. Relationships: ${fmt(o.relationships.approved)} approved, ${fmt(o.relationships.pending)} waiting.</p></div>
+    </div>
+    <div class="panel flush"><div style="padding:16px 18px 6px" class="row"><h2 style="flex:1;margin:0">Sources</h2><a class="btn sm" href="#sources">Add data</a></div>${sourcesTable(o.sources)}</div>
+    <div class="panel"><h2>Recent decisions</h2>${eventsList(o.recent)}</div>`;
+  bindSourceActions(p);
+}
+function sourcesTable(items) {
+  if (!items.length) return '<div class="empty">No data yet. <a href="#sources">Add your first source</a>.</div>';
+  return `<table class="t"><tr><th>Source</th><th>Type</th><th class="num">Tables</th><th>Profiles</th><th></th></tr>${items.map(s => `<tr>
+    <td><b>${esc(s.name)}</b><div class="faint small">${esc(s.id)}</div></td><td>${esc(SRC[s.kind] || s.kind)}</td><td class="num">${fmt(s.tables)}</td>
+    <td>${s.stale ? `<span class="pill s-stale">${s.stale} changed</span> ` : ''}${s.not_profiled ? `<span class="pill s-not_profiled">${s.not_profiled} not profiled</span> ` : ''}${!s.stale && !s.not_profiled ? pill('profiled') : ''}</td>
+    <td style="text-align:right"><a class="btn sm" href="#onboard/${encodeURIComponent(s.id)}">Onboard</a> <a class="btn sm" href="#explore/${encodeURIComponent(s.id)}">Explore</a>
+    ${s.refreshable ? `<button class="btn sm" data-refresh="${esc(s.id)}" data-kind="${esc(s.kind)}" data-user="${esc((s.origin || {}).user || '')}">Refresh</button>` : ''}</td></tr>`).join('')}</table><div id="src-job" style="padding:0 18px 12px"></div>`;
+}
+function bindSourceActions(p) {
+  $$('[data-refresh]', p).forEach(b => b.onclick = async () => {
+    try {
+      let password = null;
+      if (!['excel', 'sqlite'].includes(b.dataset.kind) && b.dataset.user) {
+        password = await askText('Password for ' + b.dataset.user, 'Used for this refresh only and never stored.', 'Password', '', 'password');
+        if (password === null) return;
+      }
+      const job = await api('/api/sources/refresh', {connection: b.dataset.refresh, password});
+      watchJob(job, $('#src-job', p), j => {
+        if (j.status === 'done') {
+          const r = j.result; toast(r.changed_tables.length ? 'Changed: ' + r.changed_tables.join(', ') : 'No table changed');
+          setTimeout(route, 1200);
+        }
+      });
+    } catch (e) { fail(e); }
+  });
+}
+function eventsList(items) {
+  if (!items || !items.length) return '<div class="muted">No decisions yet.</div>';
+  const verb = {approve: 'approved', reject: 'rejected', revoke: 'revoked', reopen: 'reopened', draft: 'drafted', revise: 'revised', migrate_fingerprint: 're-bound'};
+  return `<table class="t">${items.map(e => {
+    const ev = e.event || {}, pr = ev.approved || ev.proposed || {};
+    const what = e.artifact_id.startsWith('column_role') ? `column ${esc(pr.table || '')}.${esc(pr.column || '')}${pr.role ? ' as ' + esc(ROLE[pr.role] || pr.role) : ''}`
+      : e.artifact_id.startsWith('relationship') ? `link ${esc(pr.child_table || (pr.candidate || {}).child_table || '')} → ${esc(pr.parent_table || (pr.candidate || {}).parent_table || '')}`
+      : esc(pr.name || e.artifact_id.split(':')[0]);
+    return `<tr><td style="width:170px" class="muted small">${esc(String(e.at).replace('T', ' ').slice(0, 16))}</td><td><b>${esc(e.actor)}</b> ${esc(verb[e.action] || e.action)} ${what}<div class="faint small">${esc(e.note)}</div></td></tr>`;
+  }).join('')}</table>`;
+}
+
+/* ================================================================== sources */
+async function pageSources() {
+  const p = setPage('sources', 'Data sources');
+  const [{items}, st] = [await api('/api/sources'), S.state];
+  const types = [['csv', 'CSV folder'], ['excel', 'Excel workbook'], ['sqlite', 'SQLite file'], ['sqlserver', 'SQL Server'], ['oracle', 'Oracle'], ['postgres', 'PostgreSQL']];
+  let typ = store.get('srctype', 'csv');
+  p.innerHTML = `<div class="panel"><div class="head"><h2>Add data</h2></div>
+    <p class="muted">Binggio copies the data into this workspace (read-only on the original), profiles every column and looks for relationships. Nothing is approved until you review it.</p>
+    <div class="tabs" id="src-tabs">${types.map(([k, l]) => `<a href="#" data-t="${k}">${l}</a>`).join('')}</div>
+    <div id="src-form"></div><div id="add-job"></div></div>
+    <div class="panel flush"><div style="padding:16px 18px 6px"><h2 style="margin:0">Sources in this workspace</h2></div><div id="src-list">${sourcesTable(items)}</div></div>`;
+  bindSourceActions(p);
+  const draw = () => {
+    store.set('srctype', typ);
+    $$('#src-tabs a').forEach(a => a.classList.toggle('on', a.dataset.t === typ));
+    const db = ['sqlserver', 'oracle', 'postgres'].includes(typ);
+    const driver = {sqlserver: ['pymssql', 'sqlserver'], oracle: ['oracledb', 'oracle'], postgres: ['psycopg', 'postgres']}[typ];
+    const missing = (typ === 'excel' && !st.excel) ? 'pip install binggio[excel]' : (db && !st.drivers[typ]) ? `pip install binggio[${driver[1]}]` : '';
+    const defName = {csv: 'CSV export', excel: 'Excel workbook', sqlite: 'SQLite database', sqlserver: 'SQL Server', oracle: 'Oracle', postgres: 'PostgreSQL'}[typ];
+    $('#src-form').innerHTML = `${missing ? `<div class="warn-box">This needs an extra package. Stop Binggio, run <b>${missing}</b>, and start it again.</div>` : ''}
+      <div class="fields"><label class="f">Name for this source<input type="text" id="f-name" value="${esc(defName)}"></label></div>
+      ${!db ? `<div class="row"><input type="text" id="f-path" style="flex:1;min-width:260px" placeholder="${typ === 'csv' ? 'A folder of .csv files, or files separated by ;  (each file becomes a table)' : typ === 'excel' ? 'Path to the .xlsx file' : 'Path to the .db / .sqlite file'}">
+        <button class="btn" id="f-browse">Browse…</button></div>
+        ${typ === 'excel' ? '<div class="fields"><label class="f">Sheets (optional, comma-separated)<input type="text" id="f-sheets" placeholder="All sheets"></label><label class="f">Row limit per sheet<input type="number" id="f-limit" placeholder="200000"></label></div>' : ''}
+        ${typ === 'sqlite' ? '<div class="fields"><label class="f">Tables (optional, comma-separated)<input type="text" id="f-tables" placeholder="All tables"></label></div>' : ''}`
+      : `<div class="fields">
+        <label class="f">Host<input type="text" id="f-host" value="${typ === 'sqlserver' ? 'localhost' : ''}" placeholder="server name or address"></label>
+        <label class="f">Port<input type="number" id="f-port" placeholder="${{sqlserver: 1433, oracle: 1521, postgres: 5432}[typ]}"></label>
+        <label class="f">${typ === 'oracle' ? 'Service name' : 'Database'}<input type="text" id="f-db"></label>
+        <label class="f">Schema<input type="text" id="f-schema" placeholder="${{sqlserver: 'dbo', oracle: 'your user', postgres: 'public'}[typ]}"></label>
+        <label class="f">User<input type="text" id="f-user" autocomplete="off"></label>
+        <label class="f">Password<input type="password" id="f-pw" autocomplete="new-password" placeholder="not stored"></label>
+        <label class="f">Row limit per table<input type="number" id="f-limit" placeholder="200000"></label></div>
+        ${typ === 'sqlserver' ? '<label class="row small" style="margin-bottom:10px"><input type="checkbox" id="f-win"> Use my Windows sign-in (leave user and password empty)</label>' : ''}
+        <div class="row"><button class="btn" id="f-test">Test connection and list tables</button><span class="muted small">Only reads the list of tables.</span></div><div id="f-tablelist"></div>`}
+      <div class="row" style="margin-top:14px"><button class="btn primary" id="f-add" ${missing ? 'disabled' : ''}>Add and profile</button>
+      ${db ? '<span class="muted small">The password is used for this copy only and never saved.</span>' : ''}</div>`;
+    if ($('#f-browse')) $('#f-browse').onclick = async () => {
+      const v = await pick(typ === 'csv' ? 'csvdir' : 'file', typ === 'excel' ? '.xlsx,.xlsm,.xls' : typ === 'sqlite' ? '.db,.sqlite,.sqlite3' : '.csv');
+      if (v) $('#f-path').value = Array.isArray(v) ? v.join('; ') : v;
+    };
+    const dbBody = () => ({kind: typ, host: $('#f-host').value, port: $('#f-port').value, database: $('#f-db').value, schema: $('#f-schema').value,
+      user: $('#f-user').value, password: $('#f-pw').value, windows_auth: $('#f-win') ? $('#f-win').checked : false});
+    if ($('#f-test')) $('#f-test').onclick = async () => {
+      const box = $('#f-tablelist'); box.innerHTML = '<div class="note-box">Connecting…</div>';
+      try {
+        const r = await api('/api/sources/test', dbBody());
+        box.innerHTML = `<div class="note-box">Connected. ${r.tables.length} table${r.tables.length === 1 ? '' : 's'} found. Untick any you do not want to copy.</div>
+          <div class="scroll" style="max-height:220px;border:1px solid var(--line);border-radius:8px;padding:6px 10px">${r.tables.map(t => `<label class="row small"><input type="checkbox" class="f-t" value="${esc(t.table)}" checked> ${esc(t.schema)}.${esc(t.table)}</label>`).join('')}</div>`;
+      } catch (e) { box.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+    };
+    $('#f-add').onclick = async () => {
+      const body = {name: $('#f-name').value, row_limit: $('#f-limit') ? $('#f-limit').value : ''};
+      if (db) {
+        Object.assign(body, dbBody(), {type: 'database'});
+        const ticks = $$('.f-t'); if (ticks.length && ticks.some(t => !t.checked)) body.tables = ticks.filter(t => t.checked).map(t => t.value);
+      } else {
+        Object.assign(body, {type: typ, path: $('#f-path').value});
+        if ($('#f-sheets')) body.sheets = $('#f-sheets').value;
+        if ($('#f-tables')) body.tables = $('#f-tables').value;
+      }
+      try {
+        $('#f-add').disabled = true;
+        const job = await api('/api/sources', body);
+        watchJob(job, $('#add-job'), j => {
+          $('#f-add').disabled = false;
+          if (j.status !== 'done') return;
+          const r = j.result;
+          $('#add-job').insertAdjacentHTML('beforeend', `<div class="note-box">Added ${fmt(r.tables)} table${r.tables === 1 ? '' : 's'}; ${fmt(r.candidate_relationships)} possible relationships across the workspace.
+            ${(r.notes || []).map(n => '<br>' + esc(n)).join('')}${(r.profile_failures || []).length ? '<br>Could not profile, so left out: ' + r.profile_failures.map(f => '<b>' + esc(f.table || f) + '</b> (' + esc(f.error || '') + ')').join('; ') : ''}</div>
+            <a class="btn primary" href="#onboard/${encodeURIComponent(r.connection)}">Review what this source adds</a> <a class="btn" href="#explore/${encodeURIComponent(r.connection)}">Explore its tables</a>`);
+          refreshBadges();
+          api('/api/sources').then(d => { $('#src-list').innerHTML = sourcesTable(d.items); bindSourceActions($('#src-list')); }).catch(() => {});
+        });
+      } catch (e) { $('#f-add').disabled = false; fail(e); }
+    };
+  };
+  $$('#src-tabs a').forEach(a => a.onclick = e => { e.preventDefault(); typ = a.dataset.t; draw(); });
+  draw();
+}
+
+/* ================================================================== explore */
+async function pageExplore(cid, table) {
+  const p = setPage('explore', 'Explore tables');
+  const [{items}, srcs] = [await api('/api/tables'), (await api('/api/sources')).items];
+  const names = Object.fromEntries(srcs.map(s => [s.id, s.name]));
+  if (!items.length) { p.innerHTML = '<div class="panel empty">No tables yet. <a href="#sources">Add data</a> first.</div>'; return; }
+  if (!table) { const first = items.find(t => !cid || t.connection_id === cid) || items[0]; cid = first.connection_id; table = first.table; }
+  const groups = {}; items.forEach(t => (groups[t.connection_id] = groups[t.connection_id] || []).push(t));
+  p.innerHTML = `<div class="split"><div class="panel" style="padding:10px"><input type="text" id="tf" placeholder="Filter tables" style="width:100%;margin-bottom:6px">
+    <div class="list scroll" style="max-height:70vh" id="tl">${Object.entries(groups).map(([c, ts]) => `<div class="grp">${esc(names[c] || c)}</div>${ts.map(t =>
+      `<a href="#explore/${encodeURIComponent(c)}/${encodeURIComponent(t.table)}" class="${c === cid && t.table === table ? 'on' : ''}" data-n="${esc(t.table.toLowerCase())}">${esc(t.table)}${t.status !== 'profiled' ? ' ' + pill(t.status) : ''}</a>`).join('')}`).join('')}</div></div>
+    <div id="td"><div class="empty">Loading…</div></div></div>`;
+  $('#tf').oninput = e => { const v = e.target.value.toLowerCase(); $$('#tl a').forEach(a => a.hidden = !a.dataset.n.includes(v)); };
+  const d = await api('/api/table?connection=' + encodeURIComponent(cid) + '&table=' + encodeURIComponent(table));
+  $('#td').innerHTML = `<div class="panel"><div class="head"><h2>${esc(table)} <span class="muted" style="font-weight:400">· ${esc(names[cid] || cid)}</span></h2>
+    ${d.stale ? pill('stale') : ''}<a class="btn sm" href="#review/roles//${encodeURIComponent(table)}">Review its columns</a></div>
+    <p class="muted small">${d.profiled ? `Profiled from ${fmt(d.sample_rows)} rows${d.sample_complete ? ' (all rows)' : ' (a sample)'}${d.preview.row_count != null ? ' · ' + fmt(d.preview.row_count) + ' rows in the table' : ''}.` : 'Not profiled yet.'}</p>
+    <div class="scroll"><table class="t"><tr><th>Column</th><th>Type</th><th class="num">Distinct</th><th class="num">Empty</th><th>Suggested role</th><th>Approved</th></tr>
+    ${d.columns.map(c => `<tr><td><b>${esc(c.name)}</b>${c.declared_key ? ' <span class="pill k-entity">declared key</span>' : ''}${c.findings.length ? `<div class="faint small">${c.findings.map(f => esc(f.message || f.code || f)).join('; ')}</div>` : ''}</td>
+      <td>${esc(c.type)}</td><td class="num">${fmt(c.distinct)}</td><td class="num">${c.missing_pct == null ? '–' : c.missing_pct + '%'}</td>
+      <td title="${esc((c.evidence || []).join('\n'))}">${esc(ROLE[c.suggested] || c.suggested || '')}</td><td>${c.status === 'approved' ? esc(ROLE[c.approved_role] || c.approved_role) : pill(c.status || 'pending')}</td></tr>`).join('')}</table></div></div>
+    <div class="panel"><h2>Relationships</h2>${d.links.length ? `<table class="t"><tr><th>From</th><th>To</th><th class="num">Score</th></tr>${d.links.map(l => `<tr>
+      <td>${esc(l.child.table)}.<b>${esc(l.child.column)}</b></td><td>${esc(l.parent.table)}.<b>${esc(l.parent.column)}</b></td><td class="num">${l.score.toFixed(2)}</td></tr>`).join('')}</table>
+      <p style="margin-top:10px"><a href="#review/relationships//${encodeURIComponent(table)}">Review these links</a></p>` : '<p class="muted">No candidate relationships found for this table.</p>'}</div>
+    <div class="panel flush"><div style="padding:16px 18px 8px"><h2 style="margin:0">First rows</h2></div><div class="scroll" style="max-height:340px">
+    <table class="t"><tr>${d.preview.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr>${d.preview.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></div></div>`;
+}
+
+/* ================================================================== onboard */
+async function pageOnboard(cid) {
+  const p = setPage('onboard', 'Onboard a source');
+  const srcs = (await api('/api/sources')).items;
+  if (!srcs.length) { p.innerHTML = '<div class="panel empty">Add a source first. <a href="#sources">Add data</a>.</div>'; return; }
+  if (!cid) cid = [...srcs].sort((a, b) => a.created_at < b.created_at ? 1 : -1)[0].id;
+  p.innerHTML = `<div class="panel"><div class="row"><label class="f" style="flex:1">Source<select id="ob-src">${srcs.map(s => `<option value="${esc(s.id)}" ${s.id === cid ? 'selected' : ''}>${esc(s.name)} (${s.tables} tables)</option>`).join('')}</select></label></div></div><div id="ob"><div class="empty">Reading the source and comparing it with your data…</div></div>`;
+  $('#ob-src').onchange = e => location.hash = '#onboard/' + encodeURIComponent(e.target.value);
+  const d = await api('/api/onboard?connection=' + encodeURIComponent(cid));
+  const im = d.impact;
+  const nRoles = Object.values(d.roles).reduce((a, x) => a + x.length, 0);
+  const valuesCount = d.coded.reduce((a, c) => a + c.values.length, 0);
+  $('#ob').innerHTML = `
+    <div class="panel"><h2>How this source fits your data</h2>
+      <p class="muted">What each table most likely is, from its keys and the values it shares with tables you already have. These are suggestions; nothing is approved yet.</p>
+      <table class="t"><tr><th>Table</th><th>What it is</th><th>Why</th><th>Concept</th></tr>${im.tables.map(t => `<tr><td><b>${esc(t.table)}</b></td>
+        <td><span class="pill k-${esc(t.kind)}">${esc(KIND[t.kind] || t.kind)}</span></td><td class="small">${esc(t.detail)}</td>
+        <td class="small">${t.concept ? esc(t.concept.concept) + ' <span class="faint">(' + esc(t.concept.as) + ')</span>' : ''}</td></tr>`).join('')}</table></div>
+    <div class="panel"><h2>Step 1 of 4 · Column roles</h2>
+      ${nRoles ? `<p class="muted">Untick a table to leave its columns waiting, or change a role before approving. Duplicate tables are left out so there is only one way to answer each question.</p>
+      ${Object.entries(d.roles).map(([t, cols]) => `<details ${Object.keys(d.roles).length <= 4 ? 'open' : ''} style="margin-bottom:8px"><summary><label onclick="event.stopPropagation()"><input type="checkbox" class="ob-tbl" data-t="${esc(t)}" checked></label> <b style="color:var(--ink)">${esc(t)}</b> <span class="muted">· ${cols.length} columns</span></summary>
+        <table class="t" style="margin-top:6px"><tr><th>Column</th><th>Role</th><th>Why Binggio suggests it</th></tr>${cols.map(c => `<tr><td>${esc(c.column)}</td><td><select class="ob-role" data-t="${esc(t)}" data-c="${esc(c.column)}">${ROLES.map(r => `<option value="${r}" ${r === c.role ? 'selected' : ''}>${ROLE[r]}</option>`).join('')}</select></td>
+        <td class="small muted">${esc((c.evidence || []).slice(0, 3).join('; '))}</td></tr>`).join('')}</table></details>`).join('')}`
+      : '<p class="muted">No column roles are waiting for this source.</p>'}</div>
+    <div class="panel"><h2>Step 2 of 4 · Relationships</h2>
+      ${d.links.length ? `<p class="muted">Links are ticked when the score is 0.85 or more and at least 95% of the values are found in the other table. Anything weaker is left for you to look at.</p>
+      <table class="t"><tr><th></th><th>From</th><th>To</th><th class="num">Score</th><th>Kind</th><th>Evidence</th></tr>${d.links.map(l => `<tr>
+        <td><input type="checkbox" class="ob-link" data-e="${esc(l.edge_id)}" ${l.suggested ? 'checked' : ''}></td><td>${esc(l.child)}</td><td>${esc(l.parent)}</td><td class="num">${l.score.toFixed(2)}</td>
+        <td><select class="ob-card" data-e="${esc(l.edge_id)}">${Object.entries(CARD).map(([k, v]) => `<option value="${k}" ${k === l.cardinality ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+        <td class="small muted">${l.coverage != null ? `<b style="color:${l.coverage >= 95 ? 'var(--green)' : 'var(--amber)'}">${l.coverage}% of values found.</b> ` : ''}${esc((l.reasons || []).slice(0, 2).join('; '))}</td></tr>`).join('')}</table>` : '<p class="muted">No new candidate relationships for this source.</p>'}</div>
+    <div class="panel"><h2>Step 3 of 4 · Business concepts</h2>
+      ${d.concepts.length ? `<p class="muted">A concept is a kind of business thing, with one table as its main source. People can then ask about it by name.</p>
+      <table class="t"><tr><th></th><th>Name</th><th>Main table</th><th>Key</th></tr>${d.concepts.map(c => `<tr><td><input type="checkbox" class="ob-con" data-t="${esc(c.table)}" checked></td>
+        <td><input type="text" class="ob-cname" data-t="${esc(c.table)}" value="${esc(c.name)}"></td><td>${esc(c.table)}</td><td>${esc(c.key)}</td></tr>`).join('')}</table>` : '<p class="muted">No new concepts suggested.</p>'}</div>
+    <div class="panel"><h2>Step 4 of 4 · Words for coded values</h2>
+      ${valuesCount ? `<p class="muted">Columns such as status or Y/N flags need words before questions can use them. For example, kept = N could mean "broken promise". Leave a value empty to skip it; separate several words with commas.</p>
+      <div class="scroll" style="max-height:380px"><table class="t"><tr><th>Column</th><th>Value</th><th>Means</th></tr>${d.coded.map(c => c.values.map((v, i) => `<tr><td>${i ? '' : esc(c.table) + '.<b>' + esc(c.column) + '</b>'}</td><td>${esc(v)}</td>
+        <td><input type="text" class="ob-term" data-t="${esc(c.table)}" data-c="${esc(c.column)}" data-v="${esc(v)}" style="width:100%" placeholder="e.g. closed account, account closed"></td></tr>`).join('')).join('')}</table></div>` : '<p class="muted">No coded columns found.</p>'}</div>
+    <div class="panel"><div class="row"><button class="btn primary" id="ob-apply">Approve selected</button><span class="muted small">Recorded as approved by ${esc(reviewer() || 'you')}, with a note.</span></div><div id="ob-res"></div></div>`;
+  $('#ob-apply').onclick = async () => {
+    try {
+      const by = await needReviewer();
+      const roles = {};
+      $$('.ob-tbl').filter(x => x.checked).forEach(x => roles[x.dataset.t] = $$('.ob-role').filter(s => s.dataset.t === x.dataset.t).map(s => ({column: s.dataset.c, role: s.value})));
+      const links = $$('.ob-link').filter(x => x.checked).map(x => ({edge_id: x.dataset.e, cardinality: $$('.ob-card').find(s => s.dataset.e === x.dataset.e).value}));
+      const concepts = $$('.ob-con').filter(x => x.checked).map(x => ({table: x.dataset.t, name: $$('.ob-cname').find(i => i.dataset.t === x.dataset.t).value}));
+      const terms = $$('.ob-term').filter(x => x.value.trim()).map(x => ({table: x.dataset.t, column: x.dataset.c, value: x.dataset.v, words: x.value}));
+      $('#ob-apply').disabled = true;
+      const r = await api('/api/onboard', {connection: cid, by, roles, links, concepts, terms});
+      $('#ob-res').innerHTML = `<div class="note-box">Approved ${r.roles} column roles, ${r.links} links, ${r.concepts} concepts and ${r.terms} business terms.</div>
+        ${r.errors.length ? `<div class="warn-box">${r.errors.map(esc).join('<br>')}</div>` : ''}<a class="btn primary" href="#ask">Ask a question</a> <a class="btn" href="#review">Open the review lists</a>`;
+      refreshBadges();
+    } catch (e) { fail(e); } finally { $('#ob-apply').disabled = false; }
+  };
+}
+
+/* ================================================================== review */
+async function pageReview(tab, status, table) {
+  tab = tab || 'roles';
+  const titles = {roles: 'Column roles', relationships: 'Relationships', concepts: 'Business concepts', terms: 'Business terms'};
+  const p = setPage('review', 'Review');
+  const o = S.overview || await api('/api/overview');
+  const cnt = {roles: o.roles.pending + o.roles.stale, relationships: o.relationships.pending + o.relationships.stale};
+  p.innerHTML = `<div class="tabs">${Object.entries(titles).map(([k, l]) => `<a href="#review/${k}" class="${k === tab ? 'on' : ''}">${l}${cnt[k] ? `<span class="n">${fmt(cnt[k])} to review</span>` : ''}</a>`).join('')}</div><div id="rv"></div>`;
+  if (tab === 'roles' || tab === 'relationships') return reviewList(tab, status || (cnt[tab] ? 'pending' : 'all'), table || '');
+  return reviewArtifacts(tab);
+}
+
+async function reviewList(tab, status, table) {
+  const el = $('#rv'); let offset = 0, items = [], total = 0, q = table || '';
+  el.innerHTML = `<div class="panel flush"><div class="row" style="padding:12px 14px;border-bottom:1px solid var(--line)">
+      <select id="rv-st">${['pending', 'stale', 'approved', 'rejected', 'revoked', 'all'].map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${s === 'all' ? 'Everything' : STATUS[s]}</option>`).join('')}</select>
+      <input type="text" id="rv-q" placeholder="Search table or column" value="${esc(q)}" style="flex:1;min-width:180px">
+      <span class="muted small" id="rv-sel">0 selected</span>
+      <button class="btn good sm" data-act="approve">Approve</button><button class="btn bad sm" data-act="reject">Reject</button>
+      <button class="btn sm" data-act="revoke">Revoke</button><button class="btn sm" data-act="reopen">Reopen</button></div>
+    <div class="scroll" style="max-height:66vh" id="rv-body"><div class="empty">Loading…</div></div><div id="rv-more" style="padding:10px 14px"></div></div>
+    <p class="muted small">Approve uses the role or kind shown in each row. Revoke withdraws an approval; Reopen puts a rejected or revoked item back in the waiting list. Every decision is recorded with your name and a note.</p>`;
+  const load = async (more) => {
+    if (!more) { offset = 0; items = []; }
+    const path = tab === 'roles'
+      ? `/api/review/roles?status=${status}&q=${encodeURIComponent(q)}&offset=${offset}&limit=300`
+      : `/api/review/relationships?status=${status}&q=${encodeURIComponent(q)}`;
+    const d = await api(path); total = d.total; items = items.concat(d.items); offset = items.length;
+    draw();
+  };
+  const draw = () => {
+    const body = $('#rv-body');
+    if (!items.length) { body.innerHTML = `<div class="empty">${status === 'pending' ? 'Nothing is waiting for review here.' : 'No items match.'}</div>`; $('#rv-more').innerHTML = ''; return; }
+    if (tab === 'roles') {
+      body.innerHTML = `<table class="t"><tr><th style="width:28px"><input type="checkbox" id="rv-all" aria-label="Select all"></th><th>Table</th><th>Column</th><th>Role</th><th>Status</th><th>Decided</th><th></th></tr>${items.map((x, i) => {
+        const cur = (x.decision && x.decision.approved && x.decision.approved.role) || x.suggested;
+        return `<tr><td><input type="checkbox" class="rv-c" data-i="${i}"></td><td>${esc(x.table)}</td><td><b>${esc(x.column)}</b></td>
+        <td><select class="rv-role" data-i="${i}" title="${esc((x.evidence || []).join('\n'))}">${ROLES.map(r => `<option value="${r}" ${r === cur ? 'selected' : ''}>${ROLE[r]}${r === x.suggested ? ' (suggested)' : ''}</option>`).join('')}</select></td>
+        <td>${pill(x.status)}</td><td class="small muted">${x.decision ? esc(x.decision.actor) + '<br>' + esc(String(x.decision.at).slice(0, 10)) : ''}</td>
+        <td>${x.decision ? `<button class="btn ghost sm" data-h="${esc(x.decision.id)}">History</button>` : ''}</td></tr>`; }).join('')}</table>`;
+    } else {
+      body.innerHTML = `<table class="t"><tr><th style="width:28px"><input type="checkbox" id="rv-all" aria-label="Select all"></th><th>From</th><th>To</th><th class="num">Score</th><th>Kind</th><th>Status</th><th>Evidence</th><th></th></tr>${items.map((x, i) => {
+        const card = (x.decision && x.decision.approved && x.decision.approved.cardinality) || (x.hint === 'one_to_one' ? 'one_to_one' : 'many_to_one');
+        return `<tr><td><input type="checkbox" class="rv-c" data-i="${i}"></td><td>${esc(x.child_table)}.<b>${esc(x.child_column)}</b></td><td>${esc(x.parent_table)}.<b>${esc(x.parent_column)}</b></td>
+        <td class="num">${x.score.toFixed(2)}</td><td><select class="rv-card" data-i="${i}">${Object.entries(CARD).map(([k, v]) => `<option value="${k}" ${k === card ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+        <td>${pill(x.status)}${x.freshness !== 'current' ? ' <span class="pill s-stale">table changed</span>' : ''}</td>
+        <td class="small muted" style="max-width:320px">${x.coverage != null ? x.coverage + '% of values found. ' : ''}${esc((x.reasons || []).slice(0, 2).join('; '))}</td>
+        <td>${x.decision ? `<button class="btn ghost sm" data-h="${esc(x.decision.id)}">History</button>` : ''}</td></tr>`; }).join('')}</table>`;
+    }
+    $('#rv-more').innerHTML = items.length < total ? `<button class="btn sm" id="rv-load">Show more (${fmt(total - items.length)} left)</button>` : `<span class="muted small">${fmt(total)} item${total === 1 ? '' : 's'}</span>`;
+    if ($('#rv-load')) $('#rv-load').onclick = () => load(true).catch(fail);
+    const sel = () => { $('#rv-sel').textContent = $$('.rv-c').filter(c => c.checked).length + ' selected'; };
+    $('#rv-all').onchange = e => { $$('.rv-c').forEach(c => c.checked = e.target.checked); sel(); };
+    $$('.rv-c').forEach(c => c.onchange = sel); sel();
+    $$('[data-h]').forEach(b => b.onclick = () => showHistory(b.dataset.h));
+  };
+  $('#rv-st').onchange = e => { status = e.target.value; location.replace('#review/' + tab + '/' + status + '/' + encodeURIComponent(q)); };
+  let timer; $('#rv-q').oninput = e => { clearTimeout(timer); timer = setTimeout(() => { q = e.target.value; load().catch(fail); }, 250); };
+  $$('[data-act]', el).forEach(b => b.onclick = async () => {
+    const chosen = $$('.rv-c').filter(c => c.checked).map(c => +c.dataset.i);
+    if (!chosen.length) return toast('Tick the rows first');
+    try {
+      const by = await needReviewer();
+      const act = b.dataset.act;
+      const note = await modal(`${act[0].toUpperCase() + act.slice(1)} ${chosen.length} item${chosen.length === 1 ? '' : 's'}`,
+        `<p class="muted">The note is kept with each decision in the audit trail.</p><label class="f">Note<textarea id="m-in" rows="3">${esc({approve: 'Checked the evidence and the data', reject: 'Not correct for this data', revoke: 'No longer correct', reopen: 'Needs another look'}[act])}</textarea></label>`,
+        [['Cancel', '', null], [act[0].toUpperCase() + act.slice(1), act === 'reject' ? 'bad' : 'primary', bg => $('#m-in', bg).value.trim() || null]]);
+      if (!note) return;
+      const payload = tab === 'roles'
+        ? {action: act, by, note, items: chosen.map(i => ({connection: items[i].connection, table: items[i].table, column: items[i].column, role: $(`.rv-role[data-i="${i}"]`).value}))}
+        : {action: act, by, note, items: chosen.map(i => ({edge_id: items[i].edge_id, cardinality: $(`.rv-card[data-i="${i}"]`).value, label: items[i].child_table + ' → ' + items[i].parent_table}))};
+      const r = await api('/api/review/' + tab, payload);
+      toast(`${r.done} recorded`);
+      if (r.errors.length) modal('Some items were not changed', `<div class="warn-box">${r.errors.map(esc).join('<br>')}</div>`, [['Close', 'primary', null]]);
+      S.overview = null; await load(); refreshBadges();
+    } catch (e) { fail(e); }
+  });
+  await load();
+}
+
+async function showHistory(id) {
+  try {
+    const d = await api('/api/history?artifact=' + encodeURIComponent(id));
+    modal('History', eventsList(d.items), [['Close', 'primary', null]]);
+  } catch (e) { fail(e); }
+}
+
+async function reviewArtifacts(tab) {
+  const el = $('#rv');
+  const d = await api('/api/review/' + tab);
+  const items = d.items.filter(x => tab !== 'terms' || true);
+  const desc = x => {
+    const f = x.definition || {};
+    if (x.kind === 'as_of') return `As-of date ${esc(f.date || f.value || '')}`;
+    if (x.kind === 'term') return `${esc(f.description || '')}<div class="faint small">${(f.conditions || []).map(c => esc((f.table || {}).table + '.' + c.column + ' ' + c.op + ' ' + JSON.stringify(c.value ?? ''))).join(' and ')}${f.aliases && f.aliases.length ? ' · also: ' + esc(f.aliases.join(', ')) : ''}</div>`;
+    return `${esc(f.description || '')}<div class="faint small">Main table ${esc((f.primary || {}).table || '')}${f.aliases && f.aliases.length ? ' · also called: ' + esc(f.aliases.join(', ')) : ''}</div>`;
+  };
+  el.innerHTML = `${tab === 'terms' ? `<div class="panel"><div class="head"><h2>Add a business term</h2></div><p class="muted">Give a business word one exact meaning: a value in a column, such as "broken promise" for promises_to_pay.kept = N.</p>
+      <div class="fields"><label class="f">Table<select id="nt-t"></select></label><label class="f">Column<select id="nt-c"></select></label><label class="f">Value<input type="text" id="nt-v"></label>
+      <label class="f">Words (comma-separated)<input type="text" id="nt-w" placeholder="broken promise, missed promise"></label></div><button class="btn primary" id="nt-add">Add and approve</button></div>` : ''}
+    <div class="panel flush">${items.length ? `<table class="t"><tr><th>Name</th><th>Meaning</th><th>Status</th><th>Decided</th><th></th></tr>${items.map((x, i) => `<tr><td><b>${esc(x.name)}</b><div class="faint small">${esc(x.definition.domain || '')}</div></td>
+      <td style="max-width:520px">${desc(x)}</td><td>${pill(x.status)}</td><td class="small muted">${esc(x.actor)}<br>${esc(String(x.at).slice(0, 10))}</td>
+      <td style="white-space:nowrap">${x.status !== 'approved' ? `<button class="btn good sm" data-a="approve" data-i="${i}">Approve</button> ` : ''}
+        ${['approved', 'stale'].includes(x.status) ? `<button class="btn sm" data-a="revoke" data-i="${i}">Revoke</button> ` : ''}
+        ${['pending', 'draft', 'stale'].includes(x.status) ? `<button class="btn bad sm" data-a="reject" data-i="${i}">Reject</button> ` : ''}
+        ${['rejected', 'revoked'].includes(x.status) ? `<button class="btn sm" data-a="reopen" data-i="${i}">Reopen</button> ` : ''}
+        <button class="btn ghost sm" data-h="${esc(x.id)}">History</button></td></tr>`).join('')}</table>`
+      : `<div class="empty">No ${tab === 'terms' ? 'business terms' : 'concepts'} yet. ${tab === 'concepts' ? 'They are suggested when you <a href="#onboard">onboard a source</a>.' : ''}</div>`}</div>`;
+  $$('[data-h]', el).forEach(b => b.onclick = () => showHistory(b.dataset.h));
+  $$('[data-a]', el).forEach(b => b.onclick = async () => {
+    const x = items[+b.dataset.i], act = b.dataset.a;
+    try {
+      const by = await needReviewer();
+      const note = await askText(`${act[0].toUpperCase() + act.slice(1)} "${x.name}"`, 'The note is kept with the decision in the audit trail.', 'Note',
+        {approve: 'Meaning checked', reject: 'Not correct', revoke: 'No longer correct', reopen: 'Needs another look'}[act]);
+      if (!note) return;
+      const r = await api('/api/review/' + tab, {id: x.id, action: act, by, note});
+      toast(`${x.name}: ${STATUS[r.status] || r.status}`); reviewArtifacts(tab);
+    } catch (e) { fail(e); }
+  });
+  if (tab === 'terms') {
+    const tables = await api('/api/tables');
+    const opts = tables.items.filter(t => t.status === 'profiled');
+    $('#nt-t').innerHTML = opts.map((t, i) => `<option value="${i}">${esc(t.table)} (${esc(t.connection_name)})</option>`).join('');
+    const cols = async () => {
+      const t = opts[+$('#nt-t').value]; if (!t) return;
+      const d = await api('/api/table?connection=' + encodeURIComponent(t.connection_id) + '&table=' + encodeURIComponent(t.table));
+      $('#nt-c').innerHTML = d.columns.map(c => `<option>${esc(c.name)}</option>`).join('');
+    };
+    $('#nt-t').onchange = () => cols().catch(fail); cols().catch(fail);
+    $('#nt-add').onclick = async () => {
+      try {
+        const by = await needReviewer(); const t = opts[+$('#nt-t').value];
+        await api('/api/terms/create', {connection: t.connection_id, table: t.table, column: $('#nt-c').value, value: $('#nt-v').value, words: $('#nt-w').value, by});
+        toast('Term added and approved'); reviewArtifacts('terms');
+      } catch (e) { fail(e); }
+    };
+  }
+}
+
+/* ================================================================== graph */
+async function pageGraph() {
+  const p = setPage('graph', 'Relationship map');
+  const d = await api('/api/graph');
+  if (!d.nodes.length) { p.innerHTML = '<div class="panel empty">No tables yet. <a href="#sources">Add data</a> first.</div>'; return; }
+  let show = store.get('graphshow', 'approved+pending');
+  p.innerHTML = `<div class="panel"><div class="row" style="margin-bottom:10px"><div class="legend" style="flex:1">
+      <span><i style="border-color:var(--green)"></i>Approved</span><span><i style="border-color:var(--amber);border-top-style:dashed"></i>Waiting</span>
+      <span><i style="border-color:#c5ccd6;border-top-style:dotted"></i>Rejected or revoked</span><span><i style="border-color:var(--red)"></i>Data changed</span></div>
+      <select id="g-show"><option value="approved">Approved links</option><option value="approved+pending">Approved and waiting</option><option value="all">Everything</option></select></div>
+    <div class="graph" id="g"><svg id="gsvg" role="img" aria-label="Tables and their relationships"></svg><div class="side-panel" id="g-side" hidden></div></div>
+    <p class="muted small" style="margin-top:8px">Drag to move the map, scroll to zoom, click a table or a link for details. Colours of the circles show the source.</p></div>`;
+  $('#g-show').value = show;
+  $('#g-show').onchange = e => { show = e.target.value; store.set('graphshow', show); draw(); };
+  const palette = ['#2357c6', '#13846e', '#ae6910', '#8a3fb5', '#c2410c', '#0e7490', '#4d7c0f', '#be185d', '#475569'];
+  const srcIdx = {}; d.nodes.forEach(n => { if (!(n.connection in srcIdx)) srcIdx[n.connection] = Object.keys(srcIdx).length; });
+  const color = n => palette[srcIdx[n.connection] % palette.length];
+  const ecolor = {approved: 'var(--green)', pending: 'var(--amber)', stale: 'var(--red)', rejected: '#c5ccd6', revoked: '#c5ccd6'};
+  const svg = $('#gsvg'); const W = $('#g').clientWidth, H = 640;
+  let view = {x: 0, y: 0, k: 1}, nodes, edges, byId;
+  function layout() {
+    const vis = d.edges.filter(e => show === 'all' || e.status === 'approved' || (show === 'approved+pending' && (e.status === 'pending' || e.status === 'stale')));
+    const used = new Set(); vis.forEach(e => { used.add(e.source); used.add(e.target); });
+    nodes = d.nodes.filter(n => used.has(n.id) || show === 'all').map(n => ({...n, x: 40 + Math.random() * (W - 80), y: 40 + Math.random() * (H - 80)}));
+    byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+    edges = vis.filter(e => byId[e.source] && byId[e.target] && e.source !== e.target);
+    // Fruchterman-Reingold inside the frame, with gravity so separate groups stay close
+    const area = W * H, k = Math.sqrt(area / Math.max(nodes.length, 1)) * 0.75, N = 400;
+    let temp = W / 8;
+    for (let it = 0; it < N; it++) {
+      for (const a of nodes) { a.dx = 0; a.dy = 0; }
+      for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+        const a = nodes[i], b = nodes[j]; let dx = a.x - b.x, dy = a.y - b.y; const dist = Math.max(Math.hypot(dx, dy), 0.5);
+        if (dist > 3 * k) continue;
+        const f = k * k / dist; a.dx += dx / dist * f; a.dy += dy / dist * f; b.dx -= dx / dist * f; b.dy -= dy / dist * f;
+      }
+      for (const e of edges) {
+        const a = byId[e.source], b = byId[e.target]; const dx = a.x - b.x, dy = a.y - b.y; const dist = Math.max(Math.hypot(dx, dy), 0.5);
+        const f = dist * dist / k; a.dx -= dx / dist * f; a.dy -= dy / dist * f; b.dx += dx / dist * f; b.dy += dy / dist * f;
+      }
+      for (const a of nodes) {
+        a.dx += (W / 2 - a.x) * 0.9; a.dy += (H / 2 - a.y) * 0.9;
+        const m = Math.max(Math.hypot(a.dx, a.dy), 0.01), step = Math.min(m, temp);
+        a.x = Math.min(W - 20, Math.max(20, a.x + a.dx / m * step)); a.y = Math.min(H - 20, Math.max(20, a.y + a.dy / m * step));
+      }
+      temp = Math.max(1, temp * 0.985);
+    }
+    // fit to view
+    const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y);
+    if (nodes.length) {
+      const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
+      const s = Math.min((W - 120) / Math.max(maxx - minx, 1), (H - 80) / Math.max(maxy - miny, 1), 2);
+      view = {k: s, x: W / 2 - (minx + maxx) / 2 * s, y: H / 2 - (miny + maxy) / 2 * s};
+    }
+  }
+  function render() {
+    svg.innerHTML = `<g transform="translate(${view.x},${view.y}) scale(${view.k})">${edges.map((e, i) => {
+      const a = byId[e.source], b = byId[e.target];
+      const dash = e.status === 'pending' ? '5 4' : (e.status === 'rejected' || e.status === 'revoked') ? '2 4' : '';
+      return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${ecolor[e.status] || '#999'}" stroke-width="${1.6 / view.k}" ${dash ? `stroke-dasharray="${dash}"` : ''} data-e="${i}" style="cursor:pointer"/>
+        <line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="${10 / view.k}" data-e="${i}" style="cursor:pointer"/>`; }).join('')}
+      ${nodes.map((n, i) => `<g data-n="${i}" style="cursor:pointer"><circle cx="${n.x}" cy="${n.y}" r="${7 / Math.sqrt(view.k)}" fill="${color(n)}" stroke="#fff" stroke-width="${1.5 / view.k}"/>
+        <text x="${n.x + 9 / view.k}" y="${n.y + 4 / view.k}" style="font-size:${11 / view.k}px">${esc(n.table)}</text></g>`).join('')}</g>`;
+    $$('[data-e]', svg).forEach(l => l.onclick = ev => { ev.stopPropagation(); sideEdge(edges[+l.dataset.e]); });
+    $$('[data-n]', svg).forEach(g => g.onclick = ev => { ev.stopPropagation(); sideNode(nodes[+g.dataset.n]); });
+  }
+  const side = $('#g-side');
+  function sideEdge(e) {
+    side.hidden = false;
+    side.innerHTML = `<div class="row"><h3 style="flex:1;margin:0">Relationship</h3><button class="btn ghost sm" id="gs-x" aria-label="Close">✕</button></div>
+      <p style="margin:8px 0">${esc(e.child_table)}.<b>${esc(e.child_column)}</b><br>→ ${esc(e.parent_table)}.<b>${esc(e.parent_column)}</b></p>
+      <p>${pill(e.status)} <span class="muted small">score ${e.score.toFixed(2)}</span></p>
+      <a class="btn sm" href="#review/relationships/all/${encodeURIComponent(e.child_table)}">Review this link</a>`;
+    $('#gs-x').onclick = () => side.hidden = true;
+  }
+  function sideNode(n) {
+    const links = edges.filter(e => e.source === n.id || e.target === n.id);
+    side.hidden = false;
+    side.innerHTML = `<div class="row"><h3 style="flex:1;margin:0">${esc(n.table)}</h3><button class="btn ghost sm" id="gs-x" aria-label="Close">✕</button></div>
+      <p class="muted small" style="margin:4px 0 8px">${esc(n.source)}</p><p class="small">${links.length} link${links.length === 1 ? '' : 's'} shown</p>
+      <a class="btn sm" href="#explore/${encodeURIComponent(n.connection)}/${encodeURIComponent(n.table)}">Explore table</a>`;
+    $('#gs-x').onclick = () => side.hidden = true;
+  }
+  function draw() { layout(); render(); }
+  // pan and zoom
+  let drag = null;
+  svg.onmousedown = e => { drag = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; svg.style.cursor = 'grabbing'; };
+  window.onmouseup = () => { drag = null; svg.style.cursor = 'grab'; };
+  svg.onmousemove = e => { if (!drag) return; view.x = drag.vx + e.clientX - drag.x; view.y = drag.vy + e.clientY - drag.y; render(); };
+  svg.onwheel = e => {
+    e.preventDefault(); const r = svg.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
+    const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; view.x = mx - (mx - view.x) * f; view.y = my - (my - view.y) * f; view.k *= f; render();
+  };
+  draw();
+}
+
+
+/* ================================================================== data story */
+const KIND_LABEL = {driver: 'What drives it', concentration: 'Concentration', trend: 'Over time', gap: 'Worth checking'};
+const short = x => { const a = Math.abs(x); return a >= 1e9 ? (x / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (x / 1e6).toFixed(1) + 'M' : a >= 1e4 ? (x / 1e3).toFixed(1) + 'K' : (+x).toLocaleString(undefined, {maximumFractionDigits: 2}); };
+function barsChart(c) {
+  const max = Math.max(...c.values, 0) || 1;
+  return `<div class="bars" role="img" aria-label="${esc(c.unit)}">${c.labels.map((l, i) => `<span>${esc(l)}</span>
+    <span class="track"><span class="fill ${i === 0 ? 'top' : ''}" style="display:block;width:${(100 * c.values[i] / max).toFixed(1)}%"></span></span>
+    <span class="v">${short(c.values[i])}</span>`).join('')}</div>`;
+}
+function lineChart(c) {
+  const W = 520, H = 120, pad = 6, n = c.values.length, max = Math.max(...c.values), min = Math.min(...c.values, 0);
+  const x = i => pad + i * (W - 2 * pad) / Math.max(n - 1, 1), y = v => H - pad - (v - min) * (H - 2 * pad) / ((max - min) || 1);
+  const pts = c.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(c.unit)} by month">
+    <polyline points="${x(0)},${H - pad} ${pts} ${x(n - 1)},${H - pad}" fill="var(--blue2)" stroke="none"/>
+    <polyline points="${pts}" fill="none" stroke="var(--blue)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
+    <div class="row small muted" style="justify-content:space-between"><span>${esc(c.labels[0])}</span><span>${esc(c.labels[n - 1])}</span></div>`;
+}
+async function pageStory(cid) {
+  const p = setPage('story', 'Data story');
+  const srcs = (await api('/api/sources')).items;
+  if (!srcs.length) { p.innerHTML = '<div class="panel empty">Add a source first. <a href="#sources">Add data</a>.</div>'; return; }
+  if (!cid) cid = [...srcs].sort((a, b) => a.created_at < b.created_at ? 1 : -1)[0].id;
+  p.innerHTML = `<div class="row" style="margin-bottom:14px"><select id="st-src">${srcs.map(s => `<option value="${esc(s.id)}" ${s.id === cid ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+    <span class="muted small">The facts that matter most in this source, from approved measures and categories only.</span></div><div id="st"><div class="empty">Testing every approved measure against every approved category…</div></div>`;
+  $('#st-src').onchange = e => location.hash = '#story/' + encodeURIComponent(e.target.value);
+  const d = await api('/api/story?connection=' + encodeURIComponent(cid));
+  if (d.empty) { $('#st').innerHTML = `<div class="panel empty">${esc(d.empty)} <a href="#onboard/${encodeURIComponent(cid)}">Onboard this source</a></div>`; return; }
+  if (!d.facts.length) { $('#st').innerHTML = '<div class="panel empty">No clear facts yet: approve measures (amounts, counts) and categories for this source.</div>'; return; }
+  $('#st').innerHTML = `<div class="story">${d.facts.map(f => `<article class="fact ${f.kind}">
+      ${f.kind !== 'headline' ? `<span class="kind">${KIND_LABEL[f.kind] || ''}</span>` : ''}
+      <h2>${esc(f.title)}</h2>
+      ${f.chart ? (f.chart.type === 'line' ? lineChart(f.chart) : barsChart(f.chart)) : ''}
+      <p class="why" style="margin:0">${esc(f.detail)}</p>
+      <span class="from">From ${f.tables.map(esc).join(' → ')}</span></article>`).join('')}</div>
+    <div class="panel" style="margin-top:16px"><div class="row"><span class="muted small" style="flex:1">Tested ${d.considered.pairs_tested} measure and category pairs across ${d.considered.measures} approved measures; ${d.considered.facts_found} candidate facts, the strongest shown. Differences describe the data; they do not say why.</span></div>
+    ${d.asks.length ? `<h3 style="margin-top:12px">Ask next</h3>${d.asks.map(q => `<button class="btn sm" data-ask="${esc(q)}" style="margin:0 6px 6px 0">${esc(q)}</button>`).join('')}` : ''}</div>`;
+  $$('[data-ask]').forEach(b => b.onclick = () => { store.set('prefill', b.dataset.ask); location.hash = '#ask'; });
+}
+
+/* ================================================================== ask */
+let CONV = store.get('conv', null);
+let THREAD = [];
+async function pageAsk() {
+  const p = setPage('ask', 'Ask');
+  const st = S.state, samples = st.samples ? (await api('/api/samples')).items : [];
+  p.innerHTML = `<div class="ask"><div>
+      ${!st.model.configured ? `<div class="warn-box">To ask in your own words, Binggio needs a model key. <a href="#settings">Add a key</a>, or set BINGGIO_LLM_API_KEY before starting.${samples.length ? ' The sample questions on the right work without one.' : ''}</div>` : ''}
+      <div class="thread" id="thread">${THREAD.length ? '' : `<div class="empty" id="ask-empty"><h2>Ask about your approved data</h2><p>Follow-up questions such as "which of these…" work on the previous answer.</p></div>`}</div>
+      <div class="composer"><textarea id="qbox" placeholder="Ask a question about your approved data" aria-label="Question"></textarea>
+        <button class="btn primary" id="qsend">Ask</button></div></div>
+    <div><div class="panel"><div class="row" style="margin-bottom:8px"><h3 style="flex:1;margin:0">Conversation</h3><button class="btn sm" id="qnew">New conversation</button></div>
+      <p class="muted small" style="margin:0">Binggio answers only from approved tables, links and business terms. If something is missing it says what, instead of guessing.</p></div>
+      ${samples.length ? `<div class="panel samples"><h3>Sample questions</h3><p class="muted small">Prepared for the sample bank. They run without a model key.</p>
+        ${samples.map((s, i) => `<button data-s="${i}">${esc(s.steps[0].question)}${s.steps.length > 1 ? `<span class="faint small"> + ${s.steps.length - 1} follow-up${s.steps.length > 2 ? 's' : ''}</span>` : ''}</button>`).join('')}</div>` : ''}</div></div>`;
+  THREAD.forEach(t => appendTurn(t, false));
+  const pre = store.get('prefill', null); if (pre) { $('#qbox').value = pre; store.set('prefill', null); $('#qbox').focus(); }
+  const send = async (question, plan) => {
+    if (!question.trim()) return;
+    if ($('#ask-empty')) $('#ask-empty').remove();
+    const turn = {question, answer: null}; THREAD.push(turn); const el = appendTurn(turn, true);
+    try {
+      const r = await api('/api/ask', {question, conversation: CONV, plan});
+      CONV = r.conversation; store.set('conv', CONV); turn.answer = r.answer;
+    } catch (e) { turn.answer = {status: 'refused', code: 'ERROR', message: e.message, hints: []}; }
+    el.replaceWith(answerCard(turn)); window.scrollTo({top: document.body.scrollHeight});
+  };
+  $('#qsend').onclick = () => { const q = $('#qbox').value; $('#qbox').value = ''; send(q); };
+  $('#qbox').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#qsend').click(); } });
+  $('#qnew').onclick = async () => { const r = await api('/api/ask/new', {}); CONV = r.conversation; store.set('conv', CONV); THREAD = []; pageAsk(); };
+  $$('[data-s]').forEach(b => b.onclick = async () => {
+    const s = samples[+b.dataset.s];
+    const r = await api('/api/ask/new', {}); CONV = r.conversation; store.set('conv', CONV);
+    for (const step of s.steps) await send(step.question, step.plan);
+  });
+}
+function appendTurn(turn, pending) {
+  const th = $('#thread');
+  th.insertAdjacentHTML('beforeend', `<div class="q">${esc(turn.question)}</div>`);
+  const holder = document.createElement('div');
+  if (pending && !turn.answer) { holder.className = 'a'; holder.innerHTML = '<div class="ah muted">Working on it…</div>'; }
+  else holder.appendChild(answerCard(turn));
+  th.appendChild(holder); return holder;
+}
+function answerCard(turn) {
+  const a = turn.answer, d = document.createElement('div');
+  if (a.status === 'refused') {
+    d.className = 'a refusal';
+    d.innerHTML = `<div class="ah"><b>Not answered</b><span class="muted small">${esc(a.code || '')}</span></div><div style="padding:12px 16px">${esc(a.message)}
+      ${(a.hints || []).length ? `<ul>${a.hints.map(h => `<li>${esc(h.detail || h.message || JSON.stringify(h))}</li>`).join('')}</ul>` : ''}
+      ${a.code === 'MODEL_NOT_CONFIGURED' ? '<p style="margin-top:8px"><a href="#settings">Add a model key</a></p>' : ''}
+      ${['UNSUPPORTED_OR_AMBIGUOUS', 'NOTHING_APPROVED'].includes(a.code) ? '<p style="margin-top:8px"><a href="#review">Open the review lists</a></p>' : ''}</div>`;
+    return d;
+  }
+  d.className = 'a';
+  const n = a.row_count ?? a.rows.length;
+  d.innerHTML = `<div class="ah"><b>${fmt(n)} row${n === 1 ? '' : 's'}</b>${a.truncated ? `<span class="muted small">showing the first ${a.rows.length}</span>` : ''}
+      <span style="flex:1"></span><button class="btn sm" data-csv>Download CSV</button></div>
+    <div class="tablewrap"><table class="t"><tr>${a.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr>${a.rows.map(r => `<tr>${r.map(v => `<td class="${typeof v === 'number' ? 'num' : ''}">${esc(typeof v === 'number' ? v.toLocaleString() : v)}</td>`).join('')}</tr>`).join('')}</table></div>
+    <dl class="prov"><dt>From</dt><dd>${a.sources.map(s => `<span class="src" title="${esc(s.source)}">${esc(s.table)}</span>`).join('')}</dd>
+      ${a.business_terms.length ? `<dt>Terms</dt><dd>${a.business_terms.map(t => `<span class="term"><b>${t.negated ? 'not ' : ''}${esc(t.term)}</b>: ${esc(t.meaning)}</span>`).join('')}</dd>` : ''}
+      ${a.as_of ? `<dt>As of</dt><dd>${esc(a.as_of)}</dd>` : ''}
+      <dt>Steps</dt><dd>${a.explanation.map(s => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')).join('; ')}</dd>
+      <dt></dt><dd><details><summary>Query that ran</summary><pre>${esc(a.sql)}</pre><div class="faint small">Parameters: ${esc(JSON.stringify(a.parameters))}</div></details></dd></dl>`;
+  d.querySelector('[data-csv]').onclick = () => {
+    const q = v => { const s = String(v ?? ''); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const csv = [a.columns.map(q).join(','), ...a.rows.map(r => r.map(q).join(','))].join('\r\n');
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], {type: 'text/csv'}));
+    const link = document.createElement('a'); link.href = url; link.download = 'binggio-answer.csv'; link.click(); URL.revokeObjectURL(url);
+  };
+  return d;
+}
+
+/* ================================================================== activity */
+async function pageActivity() {
+  const p = setPage('activity', 'Activity');
+  const d = await api('/api/history?limit=300');
+  p.innerHTML = `<div class="panel"><p class="muted">Every decision, newest first. Names are as people entered them.</p>${eventsList(d.items)}</div>`;
+}
+
+/* ================================================================== settings */
+async function pageSettings() {
+  const p = setPage('settings', 'Settings');
+  const m = S.state.model;
+  p.innerHTML = `<div class="grid2"><div class="panel"><h2>Your name</h2><p class="muted">Recorded with every approval, rejection and revocation you make in this browser.</p>
+      <div class="row"><input type="text" id="s-by" value="${esc(reviewer())}" style="flex:1"><button class="btn primary" id="s-by-save">Save</button></div></div>
+    <div class="panel"><h2>Model for questions in your own words</h2>
+      <p class="muted">Binggio sends the question and the names of approved tables and columns to the model, never your data rows. ${m.configured ? `A key is set (${esc(m.from || 'environment')}).` : 'No key is set.'}</p>
+      <div class="fields" style="grid-template-columns:1fr"><label class="f">API key<input type="password" id="s-key" placeholder="${m.configured ? 'Replace the key' : 'Paste your key'}" autocomplete="off"></label>
+      <label class="f">Model<input type="text" id="s-model" value="${esc(m.model)}"></label></div>
+      <div class="row"><button class="btn primary" id="s-key-save">Use this key</button>${m.from === 'this session' ? '<button class="btn" id="s-key-clear">Forget the key</button>' : ''}</div>
+      <p class="muted small" style="margin-top:10px">The key stays in memory until you close Binggio; it is never written to disk. To keep one, set BINGGIO_LLM_API_KEY before running binggio ui.</p></div></div>
+    <div class="panel"><h2>Licence</h2><p>Binggio ${esc(S.state.version)} is free software under the GNU Affero General Public License, version 3 or later. You may use, study, share and change it. If you change it and let others use it over a network, you must offer them your changed source code.</p>
+      <p class="muted">The licence text is in the LICENSE file of the source code. For use under other terms, a commercial licence is available from Ashish Kumar.</p>
+      <p>Feedback, questions, commercial licences and partnerships: <a href="#" data-mail="Binggio feedback">${CONTACT}</a>. Security issues: <a href="#" data-mail="Security">${CONTACT}</a> with "Security" in the subject.</p>
+      <p class="muted">Binggio™ and the Binggio logo are trademarks of Ashish Kumar. The licence covers the code, not the name: a modified version must use a different name (see TRADEMARKS.md).</p></div>
+        <div class="panel"><h2>Workspace</h2><p><b>${esc(S.state.workspace)}</b></p><p class="muted">Sources, profiles, approvals and the audit trail are kept in this folder. Copy or move it as a whole.</p>
+      <div class="row"><button class="btn" id="s-switch">Switch workspace</button><button class="btn" id="s-reprofile">Profile and discover again</button></div><div id="s-job"></div></div>`;
+  $('#s-by-save').onclick = () => { store.set('by', $('#s-by').value.trim()); renderTop(); toast('Saved'); };
+  $('#s-key-save').onclick = async () => {
+    try { S.state.model = await api('/api/settings/model', {key: $('#s-key').value, model: $('#s-model').value}); renderTop(); toast(S.state.model.configured ? 'Key in use' : 'Saved'); pageSettings(); } catch (e) { fail(e); }
+  };
+  if ($('#s-key-clear')) $('#s-key-clear').onclick = async () => { S.state.model = await api('/api/settings/model', {clear: true}); renderTop(); pageSettings(); };
+  $('#s-switch').onclick = () => startScreen(true);
+  $$('[data-mail]').forEach(a => a.onclick = e => { e.preventDefault(); location.href = feedbackLink(a.dataset.mail); });
+  $('#s-reprofile').onclick = async () => {
+    try { const job = await api('/api/pipeline', {}); watchJob(job, $('#s-job'), j => { if (j.status === 'done') { toast('Done'); refreshBadges(); } }); } catch (e) { fail(e); }
+  };
+}
+
+/* ------------------------------------------------------------------ boot */
+(async () => {
+  try { S.state = await api('/api/state'); route(); }
+  catch (e) { $('#root').innerHTML = `<div class="page"><div class="err-box">${esc(e.message)}</div></div>`; }
+})();
+</script>
+</body>
+</html>

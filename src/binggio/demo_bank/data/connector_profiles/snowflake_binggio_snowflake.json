@@ -1,0 +1,26 @@
+{
+  "kind": "snowflake",
+  "name": "Binggio Snowflake",
+  "account": "ITODUNU-KM47946",
+  "project": "",
+  "database": "BINGGIO_POC",
+  "schema_name": "BANKING",
+  "warehouse": "BINGGIO_POC_WH",
+  "role": "BINGGIO_READER",
+  "location": "asia-south1",
+  "tables": [
+    "CUSTOMER_PORTFOLIO",
+    "LOAN_BALANCE_HISTORY",
+    "PORTFOLIO_RISK_HISTORY"
+  ],
+  "host": "",
+  "port": "",
+  "auth_mode": "",
+  "path": "",
+  "bucket": "",
+  "prefix": "",
+  "region": "",
+  "endpoint": "",
+  "status": "snapshot_registered",
+  "connection_id": "conn_e9bd9b9d8ff547"
+}

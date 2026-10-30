@@ -1,0 +1,25 @@
+code,name,town,area,grade
+DL024,Mumbai Motors 24,Mumbai,WEST,GOLD
+DL023,Hyderabad Motors 23,Hyderabad,SOUTH,BRONZE
+DL022,Kolkata Motors 22,Kolkata,EAST,SILVER
+DL021,Bengaluru Motors 21,Bengaluru,SOUTH,GOLD
+DL020,Chennai Motors 20,Chennai,SOUTH,BRONZE
+DL019,Jaipur Motors 19,Jaipur,NORTH,SILVER
+DL018,Delhi Motors 18,Delhi,NORTH,GOLD
+DL017,Pune Motors 17,Pune,WEST,BRONZE
+DL016,Mumbai Motors 16,Mumbai,WEST,SILVER
+DL015,Hyderabad Motors 15,Hyderabad,SOUTH,GOLD
+DL014,Kolkata Motors 14,Kolkata,EAST,BRONZE
+DL013,Bengaluru Motors 13,Bengaluru,SOUTH,SILVER
+DL012,Chennai Motors 12,Chennai,SOUTH,GOLD
+DL011,Jaipur Motors 11,Jaipur,NORTH,BRONZE
+DL010,Delhi Motors 10,Delhi,NORTH,SILVER
+DL009,Pune Motors 9,Pune,WEST,GOLD
+DL008,Mumbai Motors 8,Mumbai,WEST,BRONZE
+DL007,Hyderabad Motors 7,Hyderabad,SOUTH,SILVER
+DL006,Kolkata Motors 6,Kolkata,EAST,GOLD
+DL005,Bengaluru Motors 5,Bengaluru,SOUTH,BRONZE
+DL004,Chennai Motors 4,Chennai,SOUTH,SILVER
+DL003,Jaipur Motors 3,Jaipur,NORTH,GOLD
+DL002,Delhi Motors 2,Delhi,NORTH,BRONZE
+DL001,Pune Motors 1,Pune,WEST,SILVER

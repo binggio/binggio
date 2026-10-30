@@ -1,0 +1,41 @@
+{
+  "adapter": "parquet",
+  "dataset": "Binggio_Parquet_files",
+  "mode": "bounded_read_only_snapshot",
+  "not_live": true,
+  "generated_at_utc": "2026-10-18T09:37:40.341850+00:00",
+  "tables": [
+    {
+      "table": "branch_devices",
+      "rows": 120,
+      "columns": 5,
+      "sha256": "4af314f2d49fd5a7f0b77e22c4816aee6ed2b5b415bc59c4675c307aca455f5f"
+    },
+    {
+      "table": "branches",
+      "rows": 24,
+      "columns": 5,
+      "sha256": "26d4abbca734c6707c995bc3b6ddc7d8681e12eb92a060dfc1de74e1bde8737b"
+    },
+    {
+      "table": "customer_branch_visits",
+      "rows": 300,
+      "columns": 7,
+      "sha256": "0b6d1fee120947b863be7d4c6e63b017c68dae7fcd52e2f46be76bd97806e5d1"
+    },
+    {
+      "table": "device_incidents",
+      "rows": 480,
+      "columns": 8,
+      "sha256": "85b76c36b42180940bfcd96d4c3e70a4393446a87c1ddd59e5e79d829eed7418"
+    },
+    {
+      "table": "vendor_sla",
+      "rows": 180,
+      "columns": 7,
+      "sha256": "c9c4c818ffb5138403a5ddc12601d71fd9209823ab5df26fc67f550643f3b8fb"
+    }
+  ],
+  "schema_contract": "binggio-phase1-v1",
+  "relative_catalog_path": "external_phase1/parquet/Binggio_Parquet_files"
+}

@@ -1,0 +1,16 @@
+CUST_ID,CUST_NM,CUST_TYP,ANL_REV,RM_ID
+C1001,Acme Manufacturing,Corporate,18500000,RM101
+C1002,Global Retail Ltd,Corporate,14200000,RM102
+C1003,Sunrise Foods,SME,8500000,RM103
+C1004,Metro Logistics,Corporate,22100000,RM101
+C1005,Bluewave Technologies,Corporate,12800000,RM104
+C1006,Greenfield Pharma,SME,6700000,RM105
+C1007,Orion Energy,Corporate,31500000,RM102
+C1008,Vertex Construction,SME,9200000,RM106
+C1009,Prime Healthcare,Corporate,16400000,RM104
+C1010,Everest Textiles,SME,7400000,RM105
+C1011,Northstar Telecom,Corporate,27500000,RM101
+C1012,Silverline Motors,Corporate,19800000,RM103
+C1013,Atlas Consulting,SME,5600000,RM106
+C1014,Blue Ridge Mining,Corporate,28900000,RM102
+C1015,Urban Mart,SME,6100000,RM104

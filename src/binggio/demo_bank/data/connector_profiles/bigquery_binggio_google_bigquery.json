@@ -1,0 +1,26 @@
+{
+  "kind": "bigquery",
+  "name": "Binggio Google BigQuery",
+  "account": "",
+  "project": "binggio-poc",
+  "database": "",
+  "schema_name": "binggio_poc",
+  "warehouse": "",
+  "role": "BINGGIO_READER",
+  "location": "asia-south1",
+  "tables": [
+    "card_transactions",
+    "customer_digital_profile",
+    "digital_activity"
+  ],
+  "host": "",
+  "port": "",
+  "auth_mode": "",
+  "path": "",
+  "bucket": "",
+  "prefix": "",
+  "region": "",
+  "endpoint": "",
+  "status": "snapshot_registered",
+  "connection_id": "conn_d0aecc2be1114b"
+}

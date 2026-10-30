@@ -1,0 +1,491 @@
+[
+ {
+  "id": "Q1",
+  "title": "PREMIUM + delinquent loan + escalated complaint",
+  "steps": [
+   {
+    "question": "Which customers in the PREMIUM segment have a delinquent loan and have also raised a complaint that is currently ESCALATED?",
+    "plan": {
+     "select": [
+      "csv_clean::customer_master::CUSTOMER_ID",
+      "csv_clean::customer_master::CUSTOMER_NAME"
+     ],
+     "filters": [
+      {
+       "field": "csv_clean::customer_master::SEGMENT",
+       "op": "eq",
+       "value": "PREMIUM"
+      }
+     ],
+     "where": null,
+     "exists": [
+      {
+       "table": "sqlite_imperfect::complaint_log",
+       "filters": [
+        {
+         "field": "sqlite_imperfect::complaint_log::STATUS",
+         "op": "eq",
+         "value": "ESCALATED"
+        }
+       ],
+       "negate": false
+      }
+     ],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [],
+     "limit": 200,
+     "cohort": null,
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "csv_clean::customer_master"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q2",
+  "title": "delinquent, >5M, PREMIUM customer",
+  "steps": [
+   {
+    "question": "Which delinquent loans have an outstanding balance above 5,000,000 and belong to PREMIUM customers? Largest balance first.",
+    "plan": {
+     "select": [
+      "conn_31ca3d841ed240::loan_accounts::loan_id",
+      "conn_31ca3d841ed240::loan_accounts::loan_product",
+      "conn_31ca3d841ed240::loan_accounts::outstanding_balance"
+     ],
+     "filters": [
+      {
+       "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+       "op": "gt",
+       "value": 5000000
+      },
+      {
+       "field": "csv_clean::customer_master::SEGMENT",
+       "op": "eq",
+       "value": "PREMIUM"
+      }
+     ],
+     "where": null,
+     "exists": [],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [
+      {
+       "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+       "direction": "desc"
+      }
+     ],
+     "limit": 200,
+     "cohort": null,
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "conn_31ca3d841ed240::loan_accounts"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q3",
+  "title": "risk>50 + open account + any complaint, no escalated ticket",
+  "steps": [
+   {
+    "question": "Which customers have a risk score above 50, an OPEN account and at least one complaint, but never an ESCALATED service ticket?",
+    "plan": {
+     "select": [
+      "csv_clean::customer_master::CUSTOMER_ID"
+     ],
+     "filters": [],
+     "where": null,
+     "exists": [
+      {
+       "table": "csv_clean::risk_assessments",
+       "filters": [
+        {
+         "field": "csv_clean::risk_assessments::RISK_SCORE",
+         "op": "gt",
+         "value": 50
+        }
+       ],
+       "negate": false
+      },
+      {
+       "table": "sqlite_imperfect::account_master",
+       "filters": [
+        {
+         "field": "sqlite_imperfect::account_master::STATUS",
+         "op": "eq",
+         "value": "OPEN"
+        }
+       ],
+       "negate": false
+      },
+      {
+       "table": "sqlite_imperfect::complaint_log",
+       "filters": [],
+       "negate": false
+      },
+      {
+       "table": "sqlite_imperfect::service_tickets",
+       "filters": [
+        {
+         "field": "sqlite_imperfect::service_tickets::TICKET_STATUS",
+         "op": "eq",
+         "value": "ESCALATED"
+        }
+       ],
+       "negate": true
+      }
+     ],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [],
+     "limit": 200,
+     "cohort": null,
+     "latest": null,
+     "terms": [],
+     "entity": "csv_clean::customer_master"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q4",
+  "title": "total outstanding of delinquent loans by product",
+  "steps": [
+   {
+    "question": "What is the total outstanding balance of delinquent loans for each loan product?",
+    "plan": {
+     "select": [],
+     "filters": [],
+     "where": null,
+     "exists": [],
+     "aggregate": [
+      {
+       "fn": "sum",
+       "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+       "alias": "total_outstanding"
+      }
+     ],
+     "group_by": [
+      "conn_31ca3d841ed240::loan_accounts::loan_product"
+     ],
+     "sort": [],
+     "limit": 200,
+     "cohort": null,
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "conn_31ca3d841ed240::loan_accounts"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q5",
+  "title": "restructured AND delinquent, sorted",
+  "steps": [
+   {
+    "question": "Which loans are both restructured and delinquent? Highest outstanding balance first.",
+    "plan": {
+     "select": [
+      "conn_31ca3d841ed240::loan_accounts::loan_id",
+      "conn_31ca3d841ed240::loan_accounts::customer_reference",
+      "conn_31ca3d841ed240::loan_accounts::outstanding_balance"
+     ],
+     "filters": [],
+     "where": null,
+     "exists": [],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [
+      {
+       "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+       "direction": "desc"
+      }
+     ],
+     "limit": 200,
+     "cohort": null,
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:31b22245cd52446ca928c53beab1946b",
+       "negate": false
+      },
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "conn_31ca3d841ed240::loan_accounts"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q6",
+  "title": "Mumbai + delinquent loan + any complaint",
+  "steps": [
+   {
+    "question": "Which customers living in Mumbai have a delinquent loan and have raised at least one complaint?",
+    "plan": {
+     "select": [
+      "csv_clean::customer_master::CUSTOMER_ID",
+      "csv_clean::customer_master::CUSTOMER_NAME"
+     ],
+     "filters": [
+      {
+       "field": "csv_messy::customer_addresses::CITY",
+       "op": "eq",
+       "value": "Mumbai"
+      }
+     ],
+     "where": null,
+     "exists": [
+      {
+       "table": "sqlite_imperfect::complaint_log",
+       "filters": [],
+       "negate": false
+      }
+     ],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [],
+     "limit": 200,
+     "cohort": null,
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "csv_clean::customer_master"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q7",
+  "title": "customers with a delinquent loan, per segment",
+  "steps": [
+   {
+    "question": "How many customers in each segment have at least one delinquent loan?",
+    "plan": {
+     "select": [],
+     "filters": [],
+     "where": null,
+     "exists": [],
+     "aggregate": [
+      {
+       "fn": "count_distinct",
+       "field": "csv_clean::customer_master::CUSTOMER_ID",
+       "alias": "customers"
+      }
+     ],
+     "group_by": [
+      "csv_clean::customer_master::SEGMENT"
+     ],
+     "sort": [],
+     "limit": 200,
+     "cohort": null,
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "csv_clean::customer_master"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q8",
+  "title": "delinquent loan + fraud signal >80 + risk >50",
+  "steps": [
+   {
+    "question": "Which customers with a delinquent loan also have a fraud signal score above 80 and a risk score above 50?",
+    "plan": {
+     "select": [
+      "csv_clean::customer_master::CUSTOMER_ID"
+     ],
+     "filters": [],
+     "where": null,
+     "exists": [
+      {
+       "table": "sqlite_imperfect::fraud_signals",
+       "filters": [
+        {
+         "field": "sqlite_imperfect::fraud_signals::SIGNAL_SCORE",
+         "op": "gt",
+         "value": 80
+        }
+       ],
+       "negate": false
+      },
+      {
+       "table": "csv_clean::risk_assessments",
+       "filters": [
+        {
+         "field": "csv_clean::risk_assessments::RISK_SCORE",
+         "op": "gt",
+         "value": 50
+        }
+       ],
+       "negate": false
+      }
+     ],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [],
+     "limit": 200,
+     "cohort": null,
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "csv_clean::customer_master"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q9",
+  "title": "top 5 delinquent loans of STANDARD customers by balance",
+  "steps": [
+   {
+    "question": "What are the top 5 delinquent loans of STANDARD-segment customers by outstanding balance?",
+    "plan": {
+     "select": [
+      "conn_31ca3d841ed240::loan_accounts::loan_id",
+      "conn_31ca3d841ed240::loan_accounts::loan_product",
+      "conn_31ca3d841ed240::loan_accounts::annual_interest_rate",
+      "conn_31ca3d841ed240::loan_accounts::outstanding_balance"
+     ],
+     "filters": [
+      {
+       "field": "csv_clean::customer_master::SEGMENT",
+       "op": "eq",
+       "value": "STANDARD"
+      }
+     ],
+     "where": null,
+     "exists": [],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [
+      {
+       "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+       "direction": "desc"
+      }
+     ],
+     "limit": 5,
+     "cohort": null,
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "conn_31ca3d841ed240::loan_accounts"
+    }
+   }
+  ]
+ },
+ {
+  "id": "Q10",
+  "title": "top 10 loans -> delinquent ones -> their customers",
+  "steps": [
+   {
+    "question": "Show the top 10 loans by outstanding balance.",
+    "plan": {
+     "select": [
+      "conn_31ca3d841ed240::loan_accounts::loan_id"
+     ],
+     "filters": [],
+     "where": null,
+     "exists": [],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [
+      {
+       "field": "conn_31ca3d841ed240::loan_accounts::outstanding_balance",
+       "direction": "desc"
+      }
+     ],
+     "limit": 10,
+     "cohort": null,
+     "latest": null,
+     "terms": [],
+     "entity": "conn_31ca3d841ed240::loan_accounts"
+    }
+   },
+   {
+    "question": "Which of these loans are delinquent?",
+    "plan": {
+     "select": [
+      "conn_31ca3d841ed240::loan_accounts::loan_id"
+     ],
+     "filters": [],
+     "where": null,
+     "exists": [],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [],
+     "limit": 200,
+     "cohort": "active",
+     "latest": null,
+     "terms": [
+      {
+       "term": "term:eb76e7c3a9054d0c8dbc5bfc0aca9227",
+       "negate": false
+      }
+     ],
+     "entity": "conn_31ca3d841ed240::loan_accounts"
+    }
+   },
+   {
+    "question": "Show me the customer details for these loans.",
+    "plan": {
+     "select": [
+      "csv_clean::customer_master::CUSTOMER_ID",
+      "csv_clean::customer_master::CUSTOMER_NAME",
+      "csv_clean::customer_master::SEGMENT"
+     ],
+     "filters": [],
+     "where": null,
+     "exists": [],
+     "aggregate": [],
+     "group_by": [],
+     "sort": [],
+     "limit": 200,
+     "cohort": "active",
+     "latest": null,
+     "terms": [],
+     "entity": "csv_clean::customer_master"
+    }
+   }
+  ]
+ }
+]

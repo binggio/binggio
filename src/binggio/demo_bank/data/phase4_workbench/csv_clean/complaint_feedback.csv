@@ -1,0 +1,46 @@
+RECORD_ID,COMPLAINT_ID,CUSTOMER_ID,FEEDBACK_TEXT,RATING
+43-00001,P00063,C0035,Service response requested,38
+43-00002,P00070,C0084,Billing clarification,51
+43-00003,P00077,C0013,Product enquiry,64
+43-00004,P00084,C0062,Satisfied with support,77
+43-00005,P00091,C0111,Service response requested,90
+43-00006,P00098,C0040,Billing clarification,3
+43-00007,P00005,C0109,Product enquiry,16
+43-00008,P00012,C0038,Satisfied with support,29
+43-00009,P00019,C0087,Service response requested,42
+43-00010,P00026,C0016,Billing clarification,55
+43-00011,P00033,C0065,Product enquiry,68
+43-00012,P00040,C0114,Satisfied with support,81
+43-00013,P00047,C0043,Service response requested,94
+43-00014,P00054,C0092,Billing clarification,7
+43-00015,P00061,C0021,Product enquiry,20
+43-00016,P00068,C0070,Satisfied with support,33
+43-00017,P00075,C0119,Service response requested,46
+43-00018,P00082,C0048,Billing clarification,59
+43-00019,P00089,C0097,Product enquiry,72
+43-00020,P00096,C0026,Satisfied with support,85
+43-00021,P00003,C0095,Service response requested,98
+43-00022,P00010,C0024,Billing clarification,11
+43-00023,P00017,C0073,Product enquiry,24
+43-00024,P00024,C0002,Satisfied with support,37
+43-00025,P00031,C0051,Service response requested,50
+43-00026,P00038,C0100,Billing clarification,63
+43-00027,P00045,C0029,Product enquiry,76
+43-00028,P00052,C0078,Satisfied with support,89
+43-00029,P00059,C0007,Service response requested,2
+43-00030,P00066,C0056,Billing clarification,15
+43-00031,P00073,C0105,Product enquiry,28
+43-00032,P00080,C0034,Satisfied with support,41
+43-00033,P00087,C0083,Service response requested,54
+43-00034,P00094,C0012,Billing clarification,67
+43-00035,P00001,C0081,Product enquiry,80
+43-00036,P00008,C0010,Satisfied with support,93
+43-00037,P00015,C0059,Service response requested,6
+43-00038,P00022,C0108,Billing clarification,19
+43-00039,P00029,C0037,Product enquiry,32
+43-00040,P00036,C0086,Satisfied with support,45
+43-00041,P00043,C0015,Service response requested,58
+43-00042,P00050,C0064,Billing clarification,71
+43-00043,P00057,C0113,Product enquiry,84
+43-00044,P00064,C0042,Satisfied with support,97
+43-00045,P00071,C0091,Service response requested,10

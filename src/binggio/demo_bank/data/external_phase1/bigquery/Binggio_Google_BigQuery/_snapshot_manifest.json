@@ -1,0 +1,29 @@
+{
+  "adapter": "bigquery",
+  "dataset": "Binggio_Google_BigQuery",
+  "mode": "bounded_read_only_snapshot",
+  "not_live": true,
+  "generated_at_utc": "2026-10-18T07:40:21.250147+00:00",
+  "tables": [
+    {
+      "table": "card_transactions",
+      "rows": 600,
+      "columns": 7,
+      "sha256": "f77fa68dae8f13d9be75df3ef0ccadd00d7949dd1def4eef7d707e524e313c36"
+    },
+    {
+      "table": "customer_digital_profile",
+      "rows": 100,
+      "columns": 6,
+      "sha256": "7a8ab18bc21aca9da45f671555fde22e8a0c110f5e1631bb99ad2d26cf49d63b"
+    },
+    {
+      "table": "digital_activity",
+      "rows": 300,
+      "columns": 6,
+      "sha256": "963911c4b4e9d3fe5caaf97d199b63737d6d0bf729e6ce01d5125e9e5b9ae632"
+    }
+  ],
+  "schema_contract": "binggio-phase1-v1",
+  "relative_catalog_path": "external_phase1/bigquery/Binggio_Google_BigQuery"
+}

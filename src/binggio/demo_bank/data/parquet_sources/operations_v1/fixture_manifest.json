@@ -1,0 +1,31 @@
+{
+  "version": "operations_v1",
+  "synthetic": true,
+  "tables": [
+    {
+      "name": "branches",
+      "rows": 24,
+      "sha256": "243036aae945cf40039ff7fe42553b569b709a9bcc38d6ab78a9d236cc0c8998"
+    },
+    {
+      "name": "branch_devices",
+      "rows": 120,
+      "sha256": "79652c960542d24d0e33e235bd463ffc65dfa569d5395b8bb99f6f27a7c336c8"
+    },
+    {
+      "name": "device_incidents",
+      "rows": 480,
+      "sha256": "1ce64054fbbec50c1b345f50c2493e704837ba2245f07bfcd3d69ed67e551db8"
+    },
+    {
+      "name": "customer_branch_visits",
+      "rows": 300,
+      "sha256": "34ad68dce4ed2da5c0924fcec1fc3fda03a6417671f6c418edc95557c2aa0e5b"
+    },
+    {
+      "name": "vendor_sla",
+      "rows": 180,
+      "sha256": "792528a2d8844112bddd53dfd463ae03e88caf53634b13e5762a49f7c228bb39"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+recall_id,model_code,issue,announced_on,severity
+RC001,AX2,Charging port overheating,2024-03-04,HIGH
+RC002,TR5,Turbo hose clamp,2023-09-18,MEDIUM
+RC003,SD3,Seat belt pretensioner,2024-06-01,HIGH
+RC004,VN7,Rear lamp wiring,2023-02-11,LOW
+RC005,TR6,Battery module software,2025-01-20,HIGH

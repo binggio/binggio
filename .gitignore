@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# Binggio runs and reports (generated, may contain local paths)
+sim/reports/
+uat/reports/
+_transfer/
+
+# Workspaces created while testing (a workspace holds copies of data)
+**/binggio.json
+*.sqlite3-journal
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

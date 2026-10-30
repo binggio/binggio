@@ -1,0 +1,4 @@
+# Store every file exactly as it is: no line-ending conversion on any platform.
+# Binggio binds approvals to the exact bytes of data files (content fingerprints), so the sample
+# bank, samples and test fixtures must reach every clone and every built package unchanged.
+* -text
