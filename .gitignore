@@ -22,3 +22,7 @@ _transfer/
 .idea/
 .DS_Store
 Thumbs.db
+
+# signing keys (never commit)
+*.pem
+*.key

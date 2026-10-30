@@ -1,0 +1,31 @@
+name: Bug report
+description: Something did not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Please do not paste passwords, API keys or private data. For security problems use the Security tab instead."
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. binggio demo C:\\bank\n2. ..."
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: Output of `binggio --version`, your Python version and operating system
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options: [Browser app (binggio ui), Command line, MCP / AI client, Python library]

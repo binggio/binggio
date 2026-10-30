@@ -1,0 +1,99 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Publishes a release when a tag like v0.1.0 is pushed:
+#   1. checks the tag matches the version in pyproject.toml
+#   2. builds the package and the Claude Desktop bundle (.mcpb)
+#   3. publishes to PyPI with Trusted Publishing (no token stored anywhere)
+#   4. creates a GitHub release with the files attached
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Tag matches the package version
+        run: python tools/check_version.py "${GITHUB_REF_NAME}"
+      - name: Build the package
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Build the Claude Desktop bundle
+        run: |
+          python tools/build_mcpb.py --out build/mcpb
+          npx -y @anthropic-ai/mcpb validate build/mcpb/manifest.json
+          npx -y @anthropic-ai/mcpb pack build/mcpb "binggio-${GITHUB_REF_NAME#v}.mcpb"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mcpb
+          path: "*.mcpb"
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/binggio/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  mcp-registry:
+    needs: pypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait until PyPI serves the new version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for i in $(seq 1 30); do
+            curl -fsS "https://pypi.org/pypi/binggio/$v/json" >/dev/null && exit 0; sleep 20
+          done
+          echo "PyPI does not show binggio $v yet"; exit 1
+      - name: Publish to the MCP Registry
+        env:
+          MCP_DNS_PRIVATE_KEY: ${{ secrets.MCP_DNS_PRIVATE_KEY }}
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login dns --domain=binggio.com --private-key="${MCP_DNS_PRIVATE_KEY}"
+          ./mcp-publisher publish
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out/
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" out/dist/* out/mcpb/*.mcpb \
+            --repo "${GITHUB_REPOSITORY}" --title "Binggio ${GITHUB_REF_NAME}" --generate-notes

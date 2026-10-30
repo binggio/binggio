@@ -23,6 +23,10 @@
   binggio migrate                        move an older workspace to the current evidence rules
   binggio ui [--port 8765] [--no-browser] the whole app in your browser (this computer only)
   binggio mcp                            serve governed answers to AI agents (Model Context Protocol, stdio)
+  binggio connect claude-desktop|cursor|vscode|claude-code [--print]
+                                         add Binggio to an AI client's MCP settings, safely
+
+The workspace is the current folder (or a parent), -w PATH, or the BINGGIO_WORKSPACE environment variable.
 
 Every command works on the workspace in the current folder (or a parent); use -w to choose.
 """
@@ -67,7 +71,8 @@ def _print_answer(a):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog='binggio', description='Binggio(TM), Enterprise Context Intelligence: governed answers from your data, approved meanings only.',
                                  epilog='Free software under the GNU AGPL v3 or later. Binggio is a trademark of Ashish Kumar. Feedback: ashish@binggio.com')
-    ap.add_argument('-w', '--workspace', default='.')
+    import os
+    ap.add_argument('-w', '--workspace', default=os.environ.get('BINGGIO_WORKSPACE') or '.')
     ap.add_argument('--version', action='version', version='binggio ' + __version__)
     sub = ap.add_subparsers(dest='cmd', required=True)
     for name in ('init', 'demo'):
@@ -98,6 +103,10 @@ def main(argv=None):
             s.add_argument('--cardinality', required=True, choices=['one_to_one', 'one_to_many', 'many_to_one', 'many_to_many'])
         s.add_argument('--by', required=True); s.add_argument('--note', required=True)
     sub.add_parser('mcp', help='serve governed answers to AI agents over the Model Context Protocol (stdio)')
+    s = sub.add_parser('connect', help="add Binggio to an AI client's MCP settings")
+    s.add_argument('client', choices=['claude-desktop', 'cursor', 'vscode', 'claude-code'])
+    s.add_argument('--print', dest='print_only', action='store_true', help='show the settings to add; change nothing')
+    s.add_argument('--name', default='binggio')
     s = sub.add_parser('ui', help='open Binggio in your browser')
     s.add_argument('--port', type=int, default=8765); s.add_argument('--host', default='127.0.0.1')
     s.add_argument('--no-browser', action='store_true')
@@ -123,6 +132,11 @@ def _run(a):
         try: ws = Workspace.open(a.workspace)
         except WorkspaceError: ws = None
         return serve(ws, host=a.host, port=a.port, open_browser=not a.no_browser)
+    if a.cmd == 'connect':
+        from binggio.connect import connect
+        ws = Workspace.open(a.workspace)
+        msg, _ = connect(a.client, ws.root, name=a.name, print_only=a.print_only)
+        print(msg); return 0
     if a.cmd == 'mcp':
         from binggio.mcp_server import serve as serve_mcp
         return serve_mcp(Workspace.open(a.workspace))

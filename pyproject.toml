@@ -15,8 +15,22 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
     "Topic :: Database",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Information Technology",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
+keywords = ["data governance", "semantic layer", "mcp", "csv", "sql", "data catalog"]
 dependencies = []
+
+[project.urls]
+Homepage = "https://www.binggio.com"
+Source = "https://github.com/binggio/binggio"
+Issues = "https://github.com/binggio/binggio/issues"
+Releases = "https://github.com/binggio/binggio/releases"
 
 [project.optional-dependencies]
 excel = ["openpyxl>=3.1"]

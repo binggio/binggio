@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/binggio/binggio/security/advisories/new
+    about: Please report security problems privately, not as an issue.
+  - name: Commercial licence, partnerships or private feedback
+    url: mailto:ashish@binggio.com
+    about: Write to ashish@binggio.com

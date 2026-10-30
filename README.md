@@ -2,6 +2,8 @@
 
 # Binggio™
 
+<!-- mcp-name: com.binggio/binggio -->
+
 **Governed answers from your data.** Binggio answers questions only from meanings a person has
 approved: which column is a key, how tables link, what "delinquent" means. When it cannot answer
 precisely it says why, instead of guessing.
@@ -65,11 +67,26 @@ the app. No SQL is accepted, nothing is written to your sources, and it runs on 
 | `status` | What is approved, waiting for review, or stale |
 | `propose_term` | Suggests what a coded value means; a person approves it in the app |
 
-Claude Desktop (`claude_desktop_config.json`):
+### Connect your AI client in one step
 
-```json
-{"mcpServers": {"binggio": {"command": "python", "args": ["-m", "binggio", "-w", "C:\\banks\\my-bank", "mcp"]}}}
+```bash
+binggio connect claude-desktop -w C:\banks\my-bank      # or: cursor, vscode, claude-code
 ```
+
+This adds Binggio to the client's settings and keeps everything already there (a dated backup is
+saved first; if the file is not valid JSON, nothing is changed). Add `--print` to see the settings
+without changing anything. Restart the client afterwards.
+
+Other ways in:
+
+- **Claude Desktop bundle:** download `binggio-<version>.mcpb` from the
+  [releases page](https://github.com/binggio/binggio/releases) and open it; Claude Desktop asks for
+  your workspace folder. Needs Python 3.10 or later installed.
+- **Without installing anything first** (with [uv](https://docs.astral.sh/uv/)): command `uvx`,
+  arguments `binggio mcp`, and the environment variable `BINGGIO_WORKSPACE` set to your workspace.
+- **By hand:** `{"mcpServers": {"binggio": {"command": "python", "args": ["-m", "binggio", "-w", "C:\\banks\\my-bank", "mcp"]}}}`
+
+Every command also reads the workspace from `BINGGIO_WORKSPACE` when `-w` is not given.
 
 ## Two-minute demo (command line)
 
