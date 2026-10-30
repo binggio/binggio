@@ -968,23 +968,29 @@ function lineChart(c) {
     <polyline points="${pts}" fill="none" stroke="var(--blue)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>
     <div class="row small muted" style="justify-content:space-between"><span>${esc(c.labels[0])}</span><span>${esc(c.labels[n - 1])}</span></div>`;
 }
-async function pageStory(cid) {
+async function pageStory(cid, table) {
   const p = setPage('story', 'Data story');
   const srcs = (await api('/api/sources')).items;
   if (!srcs.length) { p.innerHTML = '<div class="panel empty">Add a source first. <a href="#sources">Add data</a>.</div>'; return; }
   if (!cid) cid = [...srcs].sort((a, b) => a.created_at < b.created_at ? 1 : -1)[0].id;
-  p.innerHTML = `<div class="row" style="margin-bottom:14px"><select id="st-src">${srcs.map(s => `<option value="${esc(s.id)}" ${s.id === cid ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
-    <span class="muted small">The facts that matter most in this source, from approved measures and categories only.</span></div><div id="st"><div class="empty">Testing every approved measure against every approved category…</div></div>`;
+  p.innerHTML = `<div class="row" style="margin-bottom:14px"><select id="st-src" aria-label="Source">${srcs.map(s => `<option value="${esc(s.id)}" ${s.id === cid ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
+    <select id="st-table" aria-label="Table" hidden></select>
+    <span class="muted small" id="st-note">${table ? 'The facts about this table, from approved measures and categories only.' : 'The facts that matter most across this source, from approved measures and categories only.'}</span></div><div id="st"><div class="empty">Testing every approved measure against every approved category…</div></div>`;
   $('#st-src').onchange = e => location.hash = '#story/' + encodeURIComponent(e.target.value);
-  const d = await api('/api/story?connection=' + encodeURIComponent(cid));
+  const d = await api('/api/story?connection=' + encodeURIComponent(cid) + (table ? '&table=' + encodeURIComponent(table) : ''));
+  if ((d.tables || []).length > 1) {
+    const sel = $('#st-table'); sel.hidden = false;
+    sel.innerHTML = `<option value="">All tables: strongest facts</option>${d.tables.map(t => `<option value="${esc(t)}" ${t === table ? 'selected' : ''}>${esc(t)}</option>`).join('')}`;
+    sel.onchange = e => location.hash = '#story/' + encodeURIComponent(cid) + (e.target.value ? '/' + encodeURIComponent(e.target.value) : '');
+  }
   if (d.empty) { $('#st').innerHTML = `<div class="panel empty">${esc(d.empty)} <a href="#onboard/${encodeURIComponent(cid)}">Onboard this source</a></div>`; return; }
-  if (!d.facts.length) { $('#st').innerHTML = '<div class="panel empty">No clear facts yet: approve measures (amounts, counts) and categories for this source.</div>'; return; }
+  if (!d.facts.length) { $('#st').innerHTML = `<div class="panel empty">No clear facts yet: approve measures (amounts, counts) and categories for this ${table ? 'table' : 'source'}.</div>`; return; }
   $('#st').innerHTML = `<div class="story">${d.facts.map(f => `<article class="fact ${f.kind}">
       ${f.kind !== 'headline' ? `<span class="kind">${KIND_LABEL[f.kind] || ''}</span>` : ''}
       <h2>${esc(f.title)}</h2>
       ${f.chart ? (f.chart.type === 'line' ? lineChart(f.chart) : barsChart(f.chart)) : ''}
       <p class="why" style="margin:0">${esc(f.detail)}</p>
-      <span class="from">From ${f.tables.map(esc).join(' → ')}</span></article>`).join('')}</div>
+      <span class="from">From ${f.tables.map((t, i) => i === 0 && t !== table && (d.tables || []).includes(t) ? `<a href="#story/${encodeURIComponent(cid)}/${encodeURIComponent(t)}" title="Facts about this table">${esc(t)}</a>` : esc(t)).join(' → ')}</span></article>`).join('')}</div>
     <div class="panel" style="margin-top:16px"><div class="row"><span class="muted small" style="flex:1">Tested ${d.considered.pairs_tested} measure and category pairs across ${d.considered.measures} approved measures; ${d.considered.facts_found} candidate facts, the strongest shown. Differences describe the data; they do not say why.</span></div>
     ${d.asks.length ? `<h3 style="margin-top:12px">Ask next</h3>${d.asks.map(q => `<button class="btn sm" data-ask="${esc(q)}" style="margin:0 6px 6px 0">${esc(q)}</button>`).join('')}` : ''}</div>`;
   $$('[data-ask]').forEach(b => b.onclick = () => { store.set('prefill', b.dataset.ask); location.hash = '#ask'; });

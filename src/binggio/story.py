@@ -167,11 +167,16 @@ class Source:
 
 # ------------------------------------------------------------------ facts
 
-def build(root, connection_id, top=6):
+def build(root, connection_id, top=6, table=None):
+    """The strongest facts in one source; with `table`, the facts about that table (its own
+    measures and dates, split by its categories and those of tables it links to)."""
     src = Source(root, connection_id)
-    tables = [t for t in src.roles]
+    all_tables = sorted(src.roles)
+    if table is not None and table not in src.roles:
+        raise ValueError('No approved columns in table %s of this source' % table)
+    tables = [table] if table else all_tables
     if not tables:
-        return {'source': src.conn['name'], 'connection': connection_id, 'facts': [], 'asks': [],
+        return {'source': src.conn['name'], 'connection': connection_id, 'facts': [], 'asks': [], 'tables': [], 'table': table,
                 'considered': {'measures': 0, 'pairs_tested': 0, 'facts_found': 0},
                 'empty': 'Approve the column roles of this source first: the story uses approved measures and categories only.'}
     facts, drivers = [], []
@@ -182,8 +187,13 @@ def build(root, connection_id, top=6):
                 vals = [_num(v) for v in src.col(t, c)]
                 if sum(v is not None for v in vals) >= 10 and len({v for v in vals if v is not None}) > 2:
                     measures.append((t, c, vals, 'sum' if SUM_HINT.search(c) and not AVG_HINT.search(c) else 'average'))
-    # headline: the busiest table with a summable measure
+    # headline: the busiest table with a summable measure (for one table without one: its row count)
     sums = [m for m in measures if m[3] == 'sum']
+    if table and not sums:
+        h, rows = src.table(table)
+        facts.append({'kind': 'headline', 'score': 10, 'title': '%s %s' % ('{:,}'.format(len(rows)), _words(table)),
+                      'detail': 'All %s rows of %s. Approve an amount or count column as a measure to see totals and what drives them.' % (
+                          '{:,}'.format(len(rows)), table), 'chart': None, 'tables': [table]})
     if sums:
         t, c, vals, _ = max(sums, key=lambda m: len(m[2]))
         tot = sum(v for v in vals if v is not None)
@@ -243,7 +253,7 @@ def build(root, connection_id, top=6):
             names = src.lookup(pt, pcol, next((c for c, r in src.roles[pt].items() if r == 'TEXT'), pcol))
             what = _words(m[1]) if m else _words(t)
             facts.append({'kind': 'concentration', 'score': 3 + 6 * max(0.0, share - fair) / (1 - fair),
-                          'title': 'The top 3 of %d %s hold %d%% of %s' % (nparent, _words(pt), round(100 * share), what),
+                          'title': 'The top 3 of %s %s hold %d%% of %s' % ('{:,}'.format(nparent), _words(pt), round(100 * share), what),
                           'detail': 'An even spread would give the top 3 about %d%%.' % round(100 * fair),
                           'chart': {'type': 'bar', 'labels': [str(names.get(k, k)) for k, _ in ranked[:8]], 'values': [round(v, 2) for _, v in ranked[:8]],
                                     'unit': what}, 'tables': [t, pt]})
@@ -286,8 +296,8 @@ def build(root, connection_id, top=6):
     for kind in ('concentration', 'trend', 'gap'):
         pick += sorted((f for f in facts if f['kind'] == kind), key=lambda f: -f['score'])[:1]
     rest = sorted((f for f in facts if f not in pick), key=lambda f: -f['score'])
-    pick = (pick + rest)[:top]
-    return {'source': src.conn['name'], 'connection': connection_id, 'facts': pick,
+    pick = (pick + rest)[:top if not table else max(top, 8)]
+    return {'source': src.conn['name'], 'connection': connection_id, 'facts': pick, 'tables': all_tables, 'table': table,
             'considered': {'measures': len(measures), 'pairs_tested': len(drivers), 'facts_found': len(facts)},
             'asks': [f['ask'] for f in pick if f.get('ask')][:3]}
 

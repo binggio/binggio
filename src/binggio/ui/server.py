@@ -314,7 +314,7 @@ def api(app: App, method, path, q, body):
         from binggio import story
         cid = q.get('connection') or (sorted(ws.connections(), key=lambda c: c['created_at'])[-1]['id'] if ws.connections() else None)
         if not cid: raise ApiError('Add a source first')
-        return story.build(root, cid)
+        return story.build(root, cid, table=q.get('table') or None)
     if path == '/api/graph':
         return _graph(root)
 

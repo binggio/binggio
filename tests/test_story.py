@@ -26,3 +26,11 @@ def test_story_finds_the_known_facts(tmp_path):
     assert claims['chart']['labels'][0] == max(paid, key=paid.get)            # matches an independent count
     assert abs(claims['chart']['values'][0] - round(max(paid.values()), 2)) < 0.01
     assert not any('Total price per litre' in f['title'] for f in s['facts'])  # rates are averaged, not summed
+    # one table at a time: every fact is about that table, and every table with approvals is offered
+    assert 'parts' in s['tables'] and 'warranty_claims' in s['tables']
+    for name in s['tables']:
+        one = story.build(ws.root, c['id'], table=name)
+        assert one['table'] == name and one['facts'] and all(f['tables'][0] == name for f in one['facts'])
+    import pytest
+    with pytest.raises(ValueError):
+        story.build(ws.root, c['id'], table='no_such_table')
