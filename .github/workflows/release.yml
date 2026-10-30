@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Publishes a release when a tag like v0.1.0 is pushed:
-#   1. checks the tag matches the version in pyproject.toml
-#   2. builds the package and the Claude Desktop bundle (.mcpb)
+#   1. checks the tag matches the version everywhere, builds the package
+#   2. builds the Claude Desktop bundle (.mcpb); a problem here never blocks PyPI
 #   3. publishes to PyPI with Trusted Publishing (no token stored anywhere)
-#   4. creates a GitHub release with the files attached
+#   4. publishes to the MCP Registry as com.binggio/binggio
+#   5. creates a GitHub release with the files attached
 name: release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,24 +23,34 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Tag matches the package version
+      - name: Tag matches the version everywhere
         run: python tools/check_version.py "${GITHUB_REF_NAME}"
       - name: Build the package
         run: |
           python -m pip install build
           python -m build
-      - name: Build the Claude Desktop bundle
-        run: |
-          python tools/build_mcpb.py --out build/mcpb
-          npx -y @anthropic-ai/mcpb validate build/mcpb/manifest.json
-          npx -y @anthropic-ai/mcpb pack build/mcpb "binggio-${GITHUB_REF_NAME#v}.mcpb"
       - uses: actions/upload-artifact@v4
         with:
           name: dist
           path: dist/
+
+  bundle:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build the Claude Desktop bundle
+        run: |
+          python tools/build_mcpb.py --out build/mcpb
+          cat build/mcpb/manifest.json
+          npx -y @anthropic-ai/mcpb validate build/mcpb/manifest.json
+          npx -y @anthropic-ai/mcpb pack build/mcpb "binggio-${GITHUB_REF_NAME#v}.mcpb"
       - uses: actions/upload-artifact@v4
         with:
           name: mcpb
@@ -62,6 +74,7 @@ jobs:
   mcp-registry:
     needs: pypi
     runs-on: ubuntu-latest
+    continue-on-error: true
     environment: pypi
     permissions:
       contents: read
@@ -83,7 +96,8 @@ jobs:
           ./mcp-publisher publish
 
   github-release:
-    needs: pypi
+    needs: [pypi, bundle]
+    if: always() && needs.pypi.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -95,5 +109,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" out/dist/* out/mcpb/*.mcpb \
+          files=$(ls out/dist/* out/mcpb/*.mcpb 2>/dev/null)
+          gh release create "${GITHUB_REF_NAME}" $files \
             --repo "${GITHUB_REPOSITORY}" --title "Binggio ${GITHUB_REF_NAME}" --generate-notes
