@@ -35,11 +35,11 @@ jobs:
           python tools/build_mcpb.py --out build/mcpb
           npx -y @anthropic-ai/mcpb validate build/mcpb/manifest.json
           npx -y @anthropic-ai/mcpb pack build/mcpb "binggio-${GITHUB_REF_NAME#v}.mcpb"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mcpb
           path: "*.mcpb"
