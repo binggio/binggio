@@ -13,8 +13,6 @@ precisely it says why, instead of guessing.
 - Approvals are recorded with who made them and why, and stop being used the moment the data
   they were made on changes.
 
-![Asking the sample bank a question: the answer shows the approved term, tables and steps it used](https://raw.githubusercontent.com/binggio/binggio/main/docs/assets/binggio-ask.gif)
-
 ### See it in action
 
 https://github.com/user-attachments/assets/9e9f4222-eaf0-4bb0-8a2d-7a162eb2bc14
