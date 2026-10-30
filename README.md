@@ -17,7 +17,7 @@ precisely it says why, instead of guessing.
 
 ### See it in action
 
-<!-- Walkthrough video: on github.com, edit this file and drag binggio-walkthrough.mp4 onto the line below. -->
+https://github.com/user-attachments/assets/9e9f4222-eaf0-4bb0-8a2d-7a162eb2bc14
 
 A two-minute tour: the sample bank, questions with provenance, review and approval, the
 relationship map, adding your own CSV files, and the data story.
