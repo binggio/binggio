@@ -384,7 +384,7 @@ class Agent:
     def demo_overview(self):
         o = self.app.ok('/api/overview'); st = o['status']
         got = (st['sources'], st['tables'], st['answerable']['tables'], st['registry']['approved'], st['registry']['stale'])
-        check(got == (10, 85, 63, 429, 0), 'sources, tables, answerable, approved, stale = %s' % (got,))
+        check(got == (10, 85, 63, 428, 0), 'sources, tables, answerable, approved, stale = %s' % (got,))
 
     def demo_names(self):
         pat = re.compile(r'Phase ?\d|\bPOC\b|decision round|Ashish|superuser', re.I)

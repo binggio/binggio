@@ -194,6 +194,22 @@ pre{white-space:pre-wrap;word-break:break-word;background:#f3f5f8;border-radius:
 .demo-band{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 26px 0;max-width:1228px;padding:10px 14px;border-radius:10px;background:var(--blue2);border:1px solid var(--line);font-size:14px}
 .demo-band span{flex:1;min-width:200px;color:var(--muted)}
 @media (max-width:700px){.demo-band{margin:12px 16px 0}}
+.drawer-bg{position:fixed;inset:0;background:rgba(16,31,54,.35);z-index:35}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(680px,100%);background:var(--panel);z-index:36;box-shadow:-12px 0 40px rgba(16,31,54,.25);display:flex;flex-direction:column}
+.drawer .dh{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:flex-start}
+.drawer .dh h2{flex:1;margin:0;font-size:17px;line-height:1.35;word-break:break-word}
+.drawer .db{padding:16px 18px 40px;overflow:auto;flex:1}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:12px 0}
+.kpi{border:1px solid var(--line);border-radius:10px;padding:10px 12px}.kpi b{display:block;font-size:19px;font-weight:650}.kpi span{color:var(--muted);font-size:12px}
+.sec{margin-top:20px}.sec h3{font-size:14px;margin:0 0 8px}
+.sidecard{border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0;overflow-wrap:anywhere}
+.drawer .grid2{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.sidecard .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.4px}
+.vals{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.vals code{background:var(--paper);border:1px solid var(--line2);border-radius:5px;padding:1px 6px;font-size:12px}
+.checks{margin:0;padding-left:18px}.checks li{margin:4px 0}
+tr.click{cursor:pointer} tr.click:hover td{background:var(--paper)}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;margin:8px 0}.dl dt{color:var(--muted)}.dl dd{margin:0}
+@media (max-width:700px){.drawer .grid2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -406,7 +422,7 @@ function renderTop() {
 async function refreshBadges() {
   try {
     const o = await api('/api/overview'); S.overview = o;
-    const wait = o.roles.pending + o.relationships.pending + o.roles.stale + o.relationships.stale;
+    const wait = o.roles.pending + o.relationships.pending + o.roles.stale + o.relationships.stale + (o.issues || 0);
     const b = $('#badge-review'); if (b) { b.hidden = !wait; b.textContent = wait > 999 ? '999+' : wait; }
   } catch (e) {}
 }
@@ -716,12 +732,16 @@ async function pageOnboard(cid) {
 /* ================================================================== review */
 async function pageReview(tab, status, table) {
   tab = tab || 'roles';
-  const titles = {roles: 'Column roles', relationships: 'Relationships', concepts: 'Business concepts', terms: 'Business terms'};
+  const titles = {roles: 'Column roles', relationships: 'Relationships', concepts: 'Business concepts', terms: 'Business terms',
+    definitions: 'Definitions', issues: 'Issues', automatic: 'Automatic'};
   const p = setPage('review', 'Review');
   const o = S.overview || await api('/api/overview');
-  const cnt = {roles: o.roles.pending + o.roles.stale, relationships: o.relationships.pending + o.relationships.stale};
-  p.innerHTML = `<div class="tabs">${Object.entries(titles).map(([k, l]) => `<a href="#review/${k}" class="${k === tab ? 'on' : ''}">${l}${cnt[k] ? `<span class="n">${fmt(cnt[k])} to review</span>` : ''}</a>`).join('')}</div><div id="rv"></div>`;
+  const cnt = {roles: o.roles.pending + o.roles.stale, relationships: o.relationships.pending + o.relationships.stale, issues: o.issues || 0};
+  p.innerHTML = `<div class="tabs">${Object.entries(titles).map(([k, l]) => `<a href="#review/${k}" class="${k === tab ? 'on' : ''}">${l}${cnt[k] ? `<span class="n">${fmt(cnt[k])} ${k === 'issues' ? 'open' : 'to review'}</span>` : ''}</a>`).join('')}</div><div id="rv"></div>`;
   if (tab === 'roles' || tab === 'relationships') return reviewList(tab, status || (cnt[tab] ? 'pending' : 'all'), table || '');
+  if (tab === 'definitions') return reviewDefinitions();
+  if (tab === 'issues') return reviewIssues(status || 'open');
+  if (tab === 'automatic') return reviewAutomatic();
   return reviewArtifacts(tab);
 }
 
@@ -730,45 +750,57 @@ async function reviewList(tab, status, table) {
   el.innerHTML = `<div class="panel flush"><div class="row" style="padding:12px 14px;border-bottom:1px solid var(--line)">
       <select id="rv-st">${['pending', 'stale', 'approved', 'rejected', 'revoked', 'all'].map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${s === 'all' ? 'Everything' : STATUS[s]}</option>`).join('')}</select>
       <input type="text" id="rv-q" placeholder="Search table or column" value="${esc(q)}" style="flex:1;min-width:180px">
+      ${tab === 'relationships' ? '<label class="small" title="Every child value found, unique parent key, score 0.95 or more"><input type="checkbox" id="rv-strong"> Strong evidence only</label>' : ''}
       <span class="muted small" id="rv-sel">0 selected</span>
       <button class="btn good sm" data-act="approve">Approve</button><button class="btn bad sm" data-act="reject">Reject</button>
       <button class="btn sm" data-act="revoke">Revoke</button><button class="btn sm" data-act="reopen">Reopen</button></div>
     <div class="scroll" style="max-height:66vh" id="rv-body"><div class="empty">Loading…</div></div><div id="rv-more" style="padding:10px 14px"></div></div>
-    <p class="muted small">Approve uses the role or kind shown in each row. Revoke withdraws an approval; Reopen puts a rejected or revoked item back in the waiting list. Every decision is recorded with your name and a note.</p>`;
+    <p class="muted small">Click a row to see its evidence and decide one at a time. Approve uses the role or kind shown in each row. Revoke withdraws an approval; Reopen puts a rejected or revoked item back in the waiting list. Every decision is recorded with your name and a note.</p>`;
   const load = async (more) => {
     if (!more) { offset = 0; items = []; }
     const path = tab === 'roles'
       ? `/api/review/roles?status=${status}&q=${encodeURIComponent(q)}&offset=${offset}&limit=300`
       : `/api/review/relationships?status=${status}&q=${encodeURIComponent(q)}`;
-    const d = await api(path); total = d.total; items = items.concat(d.items); offset = items.length;
+    const d = await api(path); total = d.total; raw = (more ? raw : []).concat(d.items); offset = raw.length;
+    items = strongOnly ? raw.filter(strong) : raw.slice();
     draw();
   };
+  let strongOnly = false, raw = [];
+  const strong = x => x.coverage === 100 && x.score >= 0.95 && (x.evidence || {}).parent_uniqueness_pct === 100;
   const draw = () => {
     const body = $('#rv-body');
+    if (!body) return;   // the reviewer moved to another page while this list was loading
     if (!items.length) { body.innerHTML = `<div class="empty">${status === 'pending' ? 'Nothing is waiting for review here.' : 'No items match.'}</div>`; $('#rv-more').innerHTML = ''; return; }
     if (tab === 'roles') {
       body.innerHTML = `<table class="t"><tr><th style="width:28px"><input type="checkbox" id="rv-all" aria-label="Select all"></th><th>Table</th><th>Column</th><th>Role</th><th>Status</th><th>Decided</th><th></th></tr>${items.map((x, i) => {
         const cur = (x.decision && x.decision.approved && x.decision.approved.role) || x.suggested;
-        return `<tr><td><input type="checkbox" class="rv-c" data-i="${i}"></td><td>${esc(x.table)}</td><td><b>${esc(x.column)}</b></td>
+        return `<tr class="click" data-open="${i}" title="Open to see the evidence and decide"><td><input type="checkbox" class="rv-c" data-i="${i}" aria-label="Select"></td><td>${esc(x.table)}</td><td><b>${esc(x.column)}</b></td>
         <td><select class="rv-role" data-i="${i}" title="${esc((x.evidence || []).join('\n'))}">${ROLES.map(r => `<option value="${r}" ${r === cur ? 'selected' : ''}>${ROLE[r]}${r === x.suggested ? ' (suggested)' : ''}</option>`).join('')}</select></td>
         <td>${pill(x.status)}</td><td class="small muted">${x.decision ? esc(x.decision.actor) + '<br>' + esc(String(x.decision.at).slice(0, 10)) : ''}</td>
         <td>${x.decision ? `<button class="btn ghost sm" data-h="${esc(x.decision.id)}">History</button>` : ''}</td></tr>`; }).join('')}</table>`;
     } else {
       body.innerHTML = `<table class="t"><tr><th style="width:28px"><input type="checkbox" id="rv-all" aria-label="Select all"></th><th>From</th><th>To</th><th class="num">Score</th><th>Kind</th><th>Status</th><th>Evidence</th><th></th></tr>${items.map((x, i) => {
         const card = (x.decision && x.decision.approved && x.decision.approved.cardinality) || (x.hint === 'one_to_one' ? 'one_to_one' : 'many_to_one');
-        return `<tr><td><input type="checkbox" class="rv-c" data-i="${i}"></td><td>${esc(x.child_table)}.<b>${esc(x.child_column)}</b></td><td>${esc(x.parent_table)}.<b>${esc(x.parent_column)}</b></td>
+        return `<tr class="click" data-open="${i}" title="Open to see the evidence and decide"><td><input type="checkbox" class="rv-c" data-i="${i}" aria-label="Select"></td><td style="overflow-wrap:anywhere;min-width:160px">${esc(x.child_table)}.<b>${esc(x.child_column)}</b></td><td style="overflow-wrap:anywhere;min-width:160px">${esc(x.parent_table)}.<b>${esc(x.parent_column)}</b></td>
         <td class="num">${x.score.toFixed(2)}</td><td><select class="rv-card" data-i="${i}">${Object.entries(CARD).map(([k, v]) => `<option value="${k}" ${k === card ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
         <td>${pill(x.status)}${x.freshness !== 'current' ? ' <span class="pill s-stale">table changed</span>' : ''}</td>
-        <td class="small muted" style="max-width:320px">${x.coverage != null ? x.coverage + '% of values found. ' : ''}${esc((x.reasons || []).slice(0, 2).join('; '))}</td>
+        <td class="small muted" style="min-width:220px;max-width:340px">${x.coverage != null ? `<b style="color:var(--ink)">${x.coverage}% of values found.</b> ` : ''}${esc((x.reasons || [])[0] || '')}</td>
         <td>${x.decision ? `<button class="btn ghost sm" data-h="${esc(x.decision.id)}">History</button>` : ''}</td></tr>`; }).join('')}</table>`;
     }
-    $('#rv-more').innerHTML = items.length < total ? `<button class="btn sm" id="rv-load">Show more (${fmt(total - items.length)} left)</button>` : `<span class="muted small">${fmt(total)} item${total === 1 ? '' : 's'}</span>`;
+    $('#rv-more').innerHTML = raw.length < total ? `<button class="btn sm" id="rv-load">Show more (${fmt(total - raw.length)} left)</button>` : `<span class="muted small">${strongOnly ? fmt(items.length) + ' of ' : ''}${fmt(total)} item${total === 1 ? '' : 's'}</span>`;
     if ($('#rv-load')) $('#rv-load').onclick = () => load(true).catch(fail);
     const sel = () => { $('#rv-sel').textContent = $$('.rv-c').filter(c => c.checked).length + ' selected'; };
     $('#rv-all').onchange = e => { $$('.rv-c').forEach(c => c.checked = e.target.checked); sel(); };
     $$('.rv-c').forEach(c => c.onchange = sel); sel();
     $$('[data-h]').forEach(b => b.onclick = () => showHistory(b.dataset.h));
+    $$('tr[data-open]', body).forEach(tr => tr.onclick = e => {
+      if (e.target.closest('input,select,button,label,a')) return;
+      const x = items[+tr.dataset.open];
+      if (tab === 'roles') openRole(x.connection, x.table, x.column, () => load().catch(fail));
+      else openRelationship(x.edge_id, () => load().catch(fail));
+    });
   };
+  if ($('#rv-strong')) $('#rv-strong').onchange = e => { strongOnly = e.target.checked; items = strongOnly ? raw.filter(strong) : raw.slice(); draw(); };
   $('#rv-st').onchange = e => { status = e.target.value; location.replace('#review/' + tab + '/' + status + '/' + encodeURIComponent(q)); };
   let timer; $('#rv-q').oninput = e => { clearTimeout(timer); timer = setTimeout(() => { q = e.target.value; load().catch(fail); }, 250); };
   $$('[data-act]', el).forEach(b => b.onclick = async () => {
@@ -793,6 +825,277 @@ async function reviewList(tab, status, table) {
   await load();
 }
 
+/* ------------------------------------------------------------------ side panel */
+function drawer(title) {
+  const bg = document.createElement('div'); bg.className = 'drawer-bg';
+  const dr = document.createElement('aside'); dr.className = 'drawer'; dr.setAttribute('role', 'dialog'); dr.setAttribute('aria-modal', 'true');
+  dr.innerHTML = `<div class="dh"><h2></h2><button class="btn ghost" data-x aria-label="Close">✕</button></div><div class="db"><div class="empty">Loading…</div></div>`;
+  const close = () => { bg.remove(); dr.remove(); document.removeEventListener('keydown', esc_); };
+  const esc_ = e => { if (e.key === 'Escape' && !document.querySelector('.modal-bg')) close(); };
+  $('[data-x]', dr).onclick = close; bg.onclick = close; document.addEventListener('keydown', esc_);
+  document.body.append(bg, dr); $('h2', dr).textContent = title; $('[data-x]', dr).focus();
+  return {el: dr, body: $('.db', dr), close, title: t => $('h2', dr).textContent = t};
+}
+const kpi = (v, label) => `<div class="kpi"><b>${v}</b><span>${esc(label)}</span></div>`;
+const pct = v => v == null ? '–' : (Math.round(v * 10) / 10) + '%';
+const vals = xs => xs && xs.length ? `<div class="vals">${xs.map(v => `<code>${esc(v)}</code>`).join('')}</div>` : '<span class="faint small">No sample values</span>';
+function colCard(c, label) {
+  const role = c.approved_role ? ROLE[c.approved_role] || c.approved_role : (c.suggested_role ? (ROLE[c.suggested_role] || c.suggested_role) + ' (suggested)' : '–');
+  return `<div class="sidecard"><div class="k">${esc(label)}</div><div style="margin:4px 0 6px"><b>${esc(c.table)}.${esc(c.column)}</b></div>
+    <dl class="dl"><dt>Type</dt><dd>${esc(c.type || '–')}</dd><dt>Rows read</dt><dd>${fmt(c.rows)}${c.sample_complete === false ? ' (sample)' : ''}</dd>
+    <dt>Distinct</dt><dd>${fmt(c.distinct)} (${pct(c.distinct_pct)})</dd><dt>Missing</dt><dd>${fmt(c.missing)} (${pct(c.missing_pct)})</dd>
+    <dt>Role</dt><dd>${esc(role)} ${pill(c.role_status === 'missing' ? 'pending' : c.role_status)}</dd></dl>
+    ${(c.findings || []).length ? `<div class="warn-box small">${c.findings.map(esc).join('<br>')}</div>` : ''}
+    <div class="small muted">Example values</div>${vals(c.samples)}
+    <button class="btn sm" style="margin-top:10px" data-col="${esc(JSON.stringify([c.connection, c.table, c.column]))}">Open this column</button></div>`;
+}
+async function decisionNote(textarea) {
+  const by = await needReviewer();
+  const note = textarea.value.trim();
+  if (!note) { textarea.focus(); throw new Error('Write the review rationale first: what evidence did you check?'); }
+  return {by, note};
+}
+
+/* ------------------------------------------------------------------ relationship detail */
+async function openRelationship(edgeId, onChange) {
+  const dr = drawer('Relationship');
+  const draw = async () => {
+    const d = await api('/api/review/relationship?edge=' + encodeURIComponent(edgeId));
+    const c = d.child, p = d.parent, ev = d.evidence, dec = d.decision || {}, ap = dec.approved || {};
+    dr.title(`${c.table}.${c.column} → ${p.table}.${p.column}`);
+    const current = d.freshness === 'current';
+    const card = ap.cardinality || (d.hint === 'one_to_one' ? 'one_to_one' : 'many_to_one');
+    const can = {approve: current && d.status !== 'approved', reject: current && ['pending', 'stale', 'approved'].includes(d.status),
+                 reopen: ['rejected', 'revoked'].includes(d.status), revoke: dec.status === 'approved'};
+    dr.body.innerHTML = `<div class="row">${pill(d.status)}${!current ? ' <span class="pill s-stale">table changed since discovery</span>' : ''}
+        <span class="muted small" style="margin-left:auto">Score ${d.score.toFixed(2)}${d.score_label ? ' · ' + esc(d.score_label) : ''} · revision ${d.revision}</span></div>
+      ${d.prerequisites_met ? '<div class="note-box">Both key columns are approved, so this link is ready for review.</div>'
+        : `<div class="warn-box">Approve the key columns first: <b>${esc(c.column)}</b> is ${esc(STATUS[c.role_status] || c.role_status)}, <b>${esc(p.column)}</b> is ${esc(STATUS[p.role_status] || p.role_status)}. Questions use a link only when both its columns are approved.</div>`}
+      <div class="kpis">${kpi(pct(ev.coverage_pct), 'child values found in the parent')}${kpi(fmt(ev.matched) + ' / ' + fmt(ev.child_keys), 'distinct keys matched')}
+        ${kpi(pct(ev.parent_unique_pct), 'parent key unique')}${kpi(fmt((ev.child_missing || 0) + (ev.parent_missing || 0)), 'missing keys')}</div>
+      <ul class="checks">${(ev.reasons || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+      <div class="sec grid2">${colCard(c, 'Many side (child)')}${colCard(p, 'One side (parent)')}</div>
+      <div class="sec"><h3>Check before you approve</h3><ul class="checks">${d.risks.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+        ${(ev.limitations || []).length ? `<p class="faint small" style="margin-top:6px">${ev.limitations.map(esc).join(' · ')}</p>` : ''}</div>
+      <div class="sec panel" style="margin-bottom:0"><h3>Your decision</h3>
+        <div class="fields"><label class="f">Kind of link<select id="rd-card">${Object.entries(CARD).map(([k, v]) => `<option value="${k}" ${k === card ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+          <label class="f">As-of rule (optional)<input type="text" id="rd-time" maxlength="400" placeholder="e.g. match on effective dates" value="${esc(ap.temporal_rule || '')}"></label></div>
+        <label class="f">What this link means in business terms (optional)<textarea id="rd-join" rows="2" maxlength="400" placeholder="e.g. each claim belongs to one service visit">${esc(ap.join_note || '')}</textarea></label>
+        <details style="margin:8px 0"><summary class="small">Join on different columns (advanced)</summary>
+          <div class="fields"><label class="f">Child column<input type="text" id="rd-cc" maxlength="120" value="${esc(ap.child_column || c.column)}"></label>
+          <label class="f">Parent column<input type="text" id="rd-pc" maxlength="120" value="${esc(ap.parent_column || p.column)}"></label></div>
+          <p class="faint small">A changed column is your judgement: the discovery evidence above no longer supports it.</p></details>
+        <label class="f">Review rationale (required)<textarea id="rd-note" rows="3" maxlength="600" placeholder="What evidence did you check?"></textarea></label>
+        <div class="row" style="margin-top:10px">
+          <button class="btn good" data-act="approve" ${can.approve ? '' : 'disabled'}>Approve</button>
+          <button class="btn bad" data-act="reject" ${can.reject ? '' : 'disabled'}>Reject</button>
+          <button class="btn" data-act="reopen" ${can.reopen ? '' : 'disabled'}>Reopen</button>
+          <button class="btn" data-act="revoke" ${can.revoke ? '' : 'disabled'}>Revoke approval</button></div>
+        ${!current ? '<p class="small" style="color:var(--red);margin-top:8px">The tables changed since this link was found. Profile and discover again before approving.</p>' : ''}</div>
+      <div class="sec"><h3>History</h3>${eventsList(d.history)}</div>`;
+    $$('[data-col]', dr.body).forEach(b => b.onclick = () => { const [cid, t, col] = JSON.parse(b.dataset.col); openRole(cid, t, col, () => { onChange && onChange(); draw().catch(fail); }); });
+    $$('[data-act]', dr.body).forEach(b => b.onclick = async () => {
+      try {
+        const {by, note} = await decisionNote($('#rd-note'));
+        await api('/api/review/relationship', {edge_id: edgeId, action: b.dataset.act, by, note, expected_revision: d.revision,
+          cardinality: $('#rd-card').value, temporal_rule: $('#rd-time').value, join_note: $('#rd-join').value,
+          child_column_override: $('#rd-cc').value.trim() === c.column ? '' : $('#rd-cc').value.trim(),
+          parent_column_override: $('#rd-pc').value.trim() === p.column ? '' : $('#rd-pc').value.trim()});
+        toast('Decision recorded'); S.overview = null; refreshBadges(); onChange && onChange(); await draw();
+      } catch (e) { fail(e); }
+    });
+  };
+  draw().catch(e => { dr.body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; });
+}
+
+/* ------------------------------------------------------------------ column role detail */
+async function openRole(cid, table, column, onChange) {
+  const dr = drawer(table + '.' + column);
+  const draw = async () => {
+    const d = await api(`/api/review/role?connection=${encodeURIComponent(cid)}&table=${encodeURIComponent(table)}&column=${encodeURIComponent(column)}`);
+    const st = d.role_status === 'missing' ? 'pending' : d.role_status, dec = d.decision || {};
+    const cur = d.approved_role || d.suggested_role;
+    const can = {approve: !d.stale, reject: ['pending', 'stale', 'approved'].includes(st), reopen: ['rejected', 'revoked'].includes(st), revoke: dec.status === 'approved'};
+    dr.body.innerHTML = `<div class="row">${pill(st)}${d.stale ? ' <span class="pill s-stale">table changed</span>' : ''}
+        <span class="muted small" style="margin-left:auto">${d.decision ? 'revision ' + d.decision.revision : 'not decided yet'}</span></div>
+      <div class="kpis">${kpi(esc(d.type || '–'), 'type')}${kpi(fmt(d.rows), d.sample_complete === false ? 'rows read (sample)' : 'rows read')}
+        ${kpi(fmt(d.distinct) + ' (' + pct(d.distinct_pct) + ')', 'distinct values')}${kpi(fmt(d.missing) + ' (' + pct(d.missing_pct) + ')', 'missing')}</div>
+      ${d.numeric ? `<p class="small muted">Min ${esc(d.numeric.min)} · max ${esc(d.numeric.max)}${d.numeric.mean != null ? ' · mean ' + esc(Math.round(d.numeric.mean * 100) / 100) : ''}</p>` : ''}
+      <div class="small muted">Example values</div>${vals(d.samples)}
+      ${(d.findings || []).length ? `<div class="warn-box small" style="margin-top:10px">${d.findings.map(esc).join('<br>')}</div>` : ''}
+      <div class="sec"><h3>Suggested: ${esc(ROLE[d.suggested_role] || d.suggested_role || '–')}${d.confidence ? ` <span class="faint small">(${esc(d.confidence)} evidence)</span>` : ''}</h3>
+        <ul class="checks">${(d.role_evidence || []).map(r => `<li>${esc(r)}</li>`).join('') || '<li class="muted">No evidence recorded</li>'}</ul></div>
+      ${d.links.length ? `<div class="sec"><h3>Links that use this column</h3><ul class="checks">${d.links.map(l => `<li><a href="#" data-edge="${esc(l.edge_id)}">${esc(l.label)}</a> ${pill(l.status)}</li>`).join('')}</ul></div>` : ''}
+      ${d.definitions.length ? `<div class="sec"><h3>Business definitions that use it</h3><ul class="checks">${d.definitions.map(x => `<li>${esc(x.name)} (${esc(x.aggregation)}) ${pill(x.status)}</li>`).join('')}</ul></div>` : ''}
+      <div class="sec"><h3>Check before you approve</h3><ul class="checks">${d.checks.map(r => `<li>${esc(r)}</li>`).join('')}</ul></div>
+      <div class="sec panel" style="margin-bottom:0"><h3>Your decision</h3>
+        <label class="f">Role<select id="ro-role">${d.roles.map(r => `<option value="${r}" ${r === cur ? 'selected' : ''}>${esc(ROLE[r] || r)}${r === d.suggested_role ? ' (suggested)' : ''}</option>`).join('')}</select></label>
+        <label class="f">Review rationale (required)<textarea id="ro-note" rows="3" maxlength="600" placeholder="What did you check?"></textarea></label>
+        <div class="row" style="margin-top:10px"><button class="btn good" data-act="approve" ${can.approve ? '' : 'disabled'}>Approve role</button>
+          <button class="btn bad" data-act="reject" ${can.reject ? '' : 'disabled'}>Reject</button>
+          <button class="btn" data-act="reopen" ${can.reopen ? '' : 'disabled'}>Reopen</button>
+          <button class="btn" data-act="revoke" ${can.revoke ? '' : 'disabled'}>Revoke approval</button></div></div>
+      <div class="sec"><h3>History</h3>${eventsList(d.history)}</div>`;
+    $$('[data-edge]', dr.body).forEach(a => a.onclick = e => { e.preventDefault(); openRelationship(a.dataset.edge, onChange); });
+    $$('[data-act]', dr.body).forEach(b => b.onclick = async () => {
+      try {
+        const {by, note} = await decisionNote($('#ro-note'));
+        const r = await api('/api/review/roles', {action: b.dataset.act, by, note, items: [{connection: cid, table, column, role: $('#ro-role').value}]});
+        if (r.errors.length) throw new Error(r.errors.join('; '));
+        toast('Decision recorded'); S.overview = null; refreshBadges(); onChange && onChange(); await draw();
+      } catch (e) { fail(e); }
+    });
+  };
+  draw().catch(e => { dr.body.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; });
+}
+
+/* ------------------------------------------------------------------ business definitions */
+async function reviewDefinitions(showAll) {
+  const el = $('#rv');
+  const d = await api('/api/review/definitions');
+  if (!el.isConnected) return;
+  const hidden = d.items.filter(x => ['rejected', 'revoked'].includes(x.status)).length;
+  if (!showAll) d.items = d.items.filter(x => !['rejected', 'revoked'].includes(x.status));
+  d.items.sort((a, b) => ({approved: 0, stale: 1, draft: 2, pending: 2}[a.status] ?? 3) - ({approved: 0, stale: 1, draft: 2, pending: 2}[b.status] ?? 3));
+  const AGG = {SUM: 'Total (sum)', AVG: 'Average', MIN: 'Minimum', MAX: 'Maximum', COUNT: 'Count', COUNT_DISTINCT: 'Count of distinct'};
+  const colLabel = s => `${s.table}.${s.column}`;
+  el.innerHTML = `<div class="panel"><div class="head"><h2>Add a business definition</h2></div>
+      <p class="muted">Give a business name one exact calculation, such as "Outstanding exposure = total of loan_accounts.outstanding_balance". Approved definitions are used when a question names them. Binggio suggests some, but a person always approves.</p>
+      ${d.measures.length ? `<div class="fields"><label class="f">Business name<input type="text" id="df-name" maxlength="100" placeholder="Outstanding exposure"></label>
+        <label class="f">Calculation<select id="df-agg">${d.aggregations.map(a => `<option value="${a}" ${a === 'SUM' ? 'selected' : ''}>${esc(AGG[a] || a)}</option>`).join('')}</select></label>
+        <label class="f">Of the column (approved measures)<select id="df-col">${d.measures.map((m, i) => `<option value="${i}">${esc(colLabel(m))}</option>`).join('')}</select></label>
+        <label class="f">Business area<input type="text" id="df-domain" maxlength="80" placeholder="Lending"></label></div>
+        <label class="f">What it means<textarea id="df-desc" rows="2" maxlength="600" placeholder="Total balance still owed on loans, before provisions"></textarea></label>
+        <div class="row" style="margin-top:10px"><button class="btn primary" id="df-add">Add as a draft</button><span class="muted small">Drafts are approved below by a reviewer.</span></div>`
+      : '<div class="warn-box">Approve at least one column as a <b>Measure</b> first (Review › Column roles); definitions are built on approved measures.</div>'}</div>
+    ${d.suggestions.length ? `<div class="panel"><div class="head"><h2>Suggested by Binggio</h2></div><p class="muted small">Never approved automatically: check what to include and the sign convention.</p>
+      <table class="t">${d.suggestions.map((x, i) => `<tr><td><b>${esc(x.name)}</b><div class="faint small">${esc(x.warning || '')}</div></td><td>${esc(AGG[x.aggregation] || x.aggregation)}</td>
+        <td style="text-align:right"><button class="btn sm" data-sug="${i}">Use this</button></td></tr>`).join('')}</table></div>` : ''}
+    <div class="panel flush"><div class="row" style="padding:12px 14px;border-bottom:1px solid var(--line)"><h2 style="flex:1;margin:0">Definitions</h2>
+      ${hidden ? `<label class="small"><input type="checkbox" id="df-all" ${showAll ? 'checked' : ''}> Show rejected and revoked (${hidden})</label>` : ''}</div>
+    ${d.items.length ? `<table class="t"><tr><th>Name</th><th>Calculation</th><th>Status</th><th>Decided</th><th></th></tr>${d.items.map((x, i) => `<tr>
+        <td><b>${esc(x.name)}</b><div class="faint small">${esc(x.description || '')}${x.domain ? ' · ' + esc(x.domain) : ''}</div></td>
+        <td>${esc(AGG[x.aggregation] || x.aggregation)} of ${x.sources.map(s => esc(colLabel(s))).join(', ')}</td><td>${pill(x.status)}</td>
+        <td class="small muted">${esc(x.actor)}<br>${esc(String(x.at).slice(0, 10))}</td>
+        <td style="white-space:nowrap">${x.status !== 'approved' && !['rejected', 'revoked'].includes(x.status) ? `<button class="btn good sm" data-a="approve" data-i="${i}">Approve</button> ` : ''}
+          ${['draft', 'pending', 'stale'].includes(x.status) ? `<button class="btn bad sm" data-a="reject" data-i="${i}">Reject</button> ` : ''}
+          ${x.stored_status === 'approved' ? `<button class="btn sm" data-a="revoke" data-i="${i}">Revoke</button> ` : ''}
+          ${['rejected', 'revoked'].includes(x.status) ? `<button class="btn sm" data-a="reopen" data-i="${i}">Reopen</button> ` : ''}
+          <button class="btn ghost sm" data-h="${esc(x.id)}">History</button></td></tr>`).join('')}</table>`
+      : '<div class="empty">No business definitions yet.</div>'}</div>`;
+  $$('[data-h]', el).forEach(b => b.onclick = () => showHistory(b.dataset.h));
+  if ($('#df-all')) $('#df-all').onchange = e => reviewDefinitions(e.target.checked).catch(fail);
+  $$('[data-sug]', el).forEach(b => b.onclick = () => {
+    const x = d.suggestions[+b.dataset.sug], i = d.measures.findIndex(m => m.connection === x.ref.connection_id && m.table === x.ref.table && m.column === x.ref.column);
+    if (i < 0) return toast('Approve that column as a Measure first');
+    $('#df-name').value = x.name; $('#df-agg').value = x.aggregation; $('#df-col').value = i; $('#df-name').focus();
+  });
+  if ($('#df-add')) $('#df-add').onclick = async () => {
+    try {
+      const by = await needReviewer(), m = d.measures[+$('#df-col').value];
+      if (!$('#df-name').value.trim() || !$('#df-desc').value.trim()) throw new Error('Give the definition a name and say what it means');
+      await api('/api/review/definitions', {action: 'create', by, note: 'Drafted in the Binggio app',
+        definition: {name: $('#df-name').value, description: $('#df-desc').value, domain: $('#df-domain').value || 'General', aggregation: $('#df-agg').value,
+                     connection: m.connection, table: m.table, column: m.column}});
+      toast('Draft added: approve it below'); reviewDefinitions(showAll);
+    } catch (e) { fail(e); }
+  };
+  $$('[data-a]', el).forEach(b => b.onclick = async () => {
+    const x = d.items[+b.dataset.i], act = b.dataset.a;
+    try {
+      const by = await needReviewer();
+      const note = await askText(`${act[0].toUpperCase() + act.slice(1)} "${x.name}"`, 'The note is kept with the decision in the audit trail.', 'Note',
+        {approve: 'Calculation and meaning checked', reject: 'Not correct', revoke: 'No longer correct', reopen: 'Needs another look'}[act]);
+      if (!note) return;
+      await api('/api/review/definitions', {id: x.id, action: act, by, note});
+      toast('Decision recorded'); reviewDefinitions(showAll);
+    } catch (e) { fail(e); }
+  });
+}
+
+/* ------------------------------------------------------------------ issues */
+async function reviewIssues(status) {
+  const el = $('#rv');
+  const d = await api('/api/issues?status=' + status);
+  if (!el.isConnected) return;
+  el.innerHTML = `<div class="panel"><p class="muted" style="margin:0">Questions Binggio refused, with the reason. Each usually points to a meaning nobody has approved yet:
+      add it as a <a href="#review/terms">business term</a> or <a href="#review/definitions">definition</a>, then mark the issue resolved. Asking the same question again adds to its count.</p></div>
+    <div class="panel flush"><div class="row" style="padding:12px 14px;border-bottom:1px solid var(--line)">
+      <select id="is-st">${['open', 'resolved', 'dismissed', 'all'].map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${s === 'all' ? 'Everything' : s[0].toUpperCase() + s.slice(1)} (${s === 'all' ? Object.values(d.counts).reduce((a, b) => a + b, 0) : d.counts[s]})</option>`).join('')}</select></div>
+    ${d.items.length ? `<table class="t"><tr><th>Question</th><th>Why it was refused</th><th class="num">Asked</th><th>Last asked</th><th></th></tr>${d.items.map((x, i) => `<tr>
+      <td style="max-width:320px"><b>${esc(x.question)}</b>${x.status !== 'open' ? `<div class="faint small">${esc(x.status)} by ${esc(x.decided_by)}: ${esc(x.note)}</div>` : ''}</td>
+      <td class="small" style="max-width:360px">${esc(x.reason)}</td><td class="num">${x.times}</td><td class="small muted">${esc(String(x.last_at).slice(0, 10))}</td>
+      <td style="white-space:nowrap">${x.status === 'open' ? `<button class="btn good sm" data-a="resolve" data-i="${i}">Resolved</button> <button class="btn sm" data-a="dismiss" data-i="${i}">Dismiss</button>`
+        : `<button class="btn sm" data-a="reopen" data-i="${i}">Reopen</button>`}</td></tr>`).join('')}</table>`
+      : `<div class="empty">${status === 'open' ? 'No open issues. Refused questions appear here.' : 'Nothing here.'}</div>`}</div>`;
+  $('#is-st').onchange = e => location.replace('#review/issues/' + e.target.value);
+  $$('[data-a]', el).forEach(b => b.onclick = async () => {
+    const x = d.items[+b.dataset.i], act = b.dataset.a;
+    try {
+      const by = await needReviewer();
+      const note = await askText({resolve: 'Mark as resolved', dismiss: 'Dismiss this issue', reopen: 'Reopen this issue'}[act],
+        act === 'resolve' ? 'Say what you approved so the question can now be answered.' : 'The note is kept with the issue.', 'Note',
+        {resolve: 'Approved the missing business term', dismiss: 'Not a question Binggio should answer', reopen: 'Still not answerable'}[act]);
+      if (!note) return;
+      await api('/api/issues', {id: x.id, action: act, by, note});
+      toast('Saved'); S.overview = null; refreshBadges(); reviewIssues(status);
+    } catch (e) { fail(e); }
+  });
+}
+
+/* ------------------------------------------------------------------ automatic review */
+async function reviewAutomatic() {
+  const el = $('#rv');
+  const d = await api('/api/autonomy');
+  if (!el.isConnected) return;
+  const st = d.status;
+  el.innerHTML = `<div class="panel"><div class="head"><h2>Automatic where the evidence is strong, a person where judgement matters</h2></div>
+      <p class="muted">Binggio can approve column roles and links that pass a strict technical check: the whole table was read, no missing or duplicate keys, every child value found in a unique parent key, and matching names. It never approves business definitions, one-to-one links or anything with a warning. Every automatic approval is recorded as <b>Binggio Policy Engine</b> and a whole run can be rolled back.</p>
+      <div class="row"><span>Automatic approval is <b>${st.enabled ? 'on' : 'off'}</b></span>
+        <button class="btn ${st.enabled ? '' : 'primary'}" id="au-toggle">${st.enabled ? 'Turn off' : 'Turn on'}</button>
+        <button class="btn" id="au-preview">Preview what it would approve</button>
+        <button class="btn good" id="au-run" ${st.enabled ? '' : 'disabled'}>Run now</button></div>
+      <div id="au-out"></div></div>
+    <div class="panel flush"><div style="padding:16px 18px 6px"><h2 style="margin:0">Runs</h2></div>${d.history.length ? `<table class="t"><tr><th>When</th><th>Approved</th><th>Left for people</th><th></th></tr>${d.history.map(r => `<tr>
+      <td class="small">${esc(String(r.at).replace('T', ' ').slice(0, 16))}</td><td>${r.summary.approved_roles} roles, ${r.summary.approved_joins} links</td><td>${r.summary.not_approved}</td>
+      <td style="text-align:right">${r.rolled_back_at ? `<span class="muted small">rolled back ${esc(String(r.rolled_back_at).slice(0, 10))}</span>` : `<button class="btn sm" data-rb="${esc(r.id)}">Roll back</button>`}</td></tr>`).join('')}</table>`
+      : '<div class="empty">No automatic runs yet.</div>'}</div>`;
+  $('#au-toggle').onclick = async () => {
+    try {
+      if (st.enabled) await api('/api/autonomy', {action: 'disable'});
+      else {
+        const ok = await askText('Turn on automatic approval', 'Approvals it makes are used in answers. Type ENABLE LOCAL AUTO-APPROVAL to confirm.', 'Confirmation', '');
+        if (!ok) return;
+        await api('/api/autonomy', {action: 'enable', confirmation: ok});
+      }
+      reviewAutomatic();
+    } catch (e) { fail(e); }
+  };
+  $('#au-preview').onclick = async () => {
+    const out = $('#au-out'); out.innerHTML = '<div class="empty">Checking every waiting item against the strict policy…</div>';
+    try {
+      const r = await api('/api/autonomy/preview'), c = r.counts;
+      out.innerHTML = `<div class="kpis">${kpi(fmt(c.eligible_roles || 0), 'roles it would approve')}${kpi(fmt(c.eligible_joins || 0), 'links it would approve')}
+          ${kpi(fmt(c.requires_review || 0), 'left for a person')}${kpi(fmt(c.previously_decided || 0), 'already decided')}</div>
+        ${r.eligible_examples.length ? `<h3>Would approve</h3><table class="t">${r.eligible_examples.map(x => `<tr><td>${esc(x.source)}</td><td>${esc(ROLE[x.role] || CARD[x.role] || x.role)}</td></tr>`).join('')}</table>` : ''}
+        ${r.exceptions.length ? `<h3 style="margin-top:14px">Left for a person, and why</h3><table class="t">${r.exceptions.map(x => `<tr><td>${esc(x.source)}</td><td class="small muted">${(x.reasons || []).map(esc).join('; ')}</td></tr>`).join('')}</table>` : ''}`;
+    } catch (e) { out.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+  };
+  $('#au-run').onclick = async () => {
+    try {
+      if (!await confirmBox('Run automatic approval', 'Binggio will approve every item that passes the strict check now. You can roll the run back afterwards.', 'Run now')) return;
+      const r = await api('/api/autonomy', {action: 'run'});
+      toast(`Approved ${r.summary.approved_roles} roles and ${r.summary.approved_joins} links`); S.overview = null; refreshBadges(); reviewAutomatic();
+    } catch (e) { fail(e); }
+  };
+  $$('[data-rb]', el).forEach(b => b.onclick = async () => {
+    try {
+      if (!await confirmBox('Roll back this run', 'Every approval this run made, and nobody has changed since, is revoked.', 'Roll back')) return;
+      await api('/api/autonomy', {action: 'rollback', run_id: b.dataset.rb}); toast('Run rolled back'); S.overview = null; refreshBadges(); reviewAutomatic();
+    } catch (e) { fail(e); }
+  });
+}
+
 async function showHistory(id) {
   try {
     const d = await api('/api/history?artifact=' + encodeURIComponent(id));
@@ -800,14 +1103,26 @@ async function showHistory(id) {
   } catch (e) { fail(e); }
 }
 
+const OPS = {eq: '=', ne: '≠', gt: '>', gte: '≥', lt: '<', lte: '≤', in: 'is one of', not_in: 'is not one of', like: 'contains', is_null: 'is empty', not_null: 'is not empty', null: 'is empty'};
+function condText(table, c) {
+  const left = (table ? table + '.' : '') + c.column, op = OPS[c.op] || c.op;
+  if (['is_null', 'not_null', 'null'].includes(c.op)) return `${left} ${op}`;
+  if (c.value_column) return `${left} ${op} ${c.value_column}`;
+  if (c.as_of_offset_days != null) {
+    const n = +c.as_of_offset_days;
+    return `${left} ${op} the as-of date${n ? (n > 0 ? ' + ' : ' − ') + Math.abs(n) + ' days' : ''}`;
+  }
+  return `${left} ${op} ${Array.isArray(c.value) ? c.value.join(', ') : c.value}`;
+}
 async function reviewArtifacts(tab) {
   const el = $('#rv');
   const d = await api('/api/review/' + tab);
+  if (!el.isConnected) return;
   const items = d.items.filter(x => tab !== 'terms' || true);
   const desc = x => {
     const f = x.definition || {};
     if (x.kind === 'as_of') return `As-of date ${esc(f.date || f.value || '')}`;
-    if (x.kind === 'term') return `${esc(f.description || '')}<div class="faint small">${(f.conditions || []).map(c => esc((f.table || {}).table + '.' + c.column + ' ' + c.op + ' ' + JSON.stringify(c.value ?? ''))).join(' and ')}${f.aliases && f.aliases.length ? ' · also: ' + esc(f.aliases.join(', ')) : ''}</div>`;
+    if (x.kind === 'term') return `${esc(f.description || '')}<div class="faint small">${(f.conditions || []).map(c => esc(condText((f.table || {}).table, c))).join(' and ')}${f.aliases && f.aliases.length ? ' · also: ' + esc(f.aliases.join(', ')) : ''}</div>`;
     return `${esc(f.description || '')}<div class="faint small">Main table ${esc((f.primary || {}).table || '')}${f.aliases && f.aliases.length ? ' · also called: ' + esc(f.aliases.join(', ')) : ''}</div>`;
   };
   el.innerHTML = `${tab === 'terms' ? `<div class="panel"><div class="head"><h2>Add a business term</h2></div><p class="muted">Give a business word one exact meaning: a value in a column, such as "broken promise" for promises_to_pay.kept = N.</p>
@@ -835,11 +1150,13 @@ async function reviewArtifacts(tab) {
   });
   if (tab === 'terms') {
     const tables = await api('/api/tables');
+    if (!$('#nt-t')) return;
     const opts = tables.items.filter(t => t.status === 'profiled');
     $('#nt-t').innerHTML = opts.map((t, i) => `<option value="${i}">${esc(t.table)} (${esc(t.connection_name)})</option>`).join('');
     const cols = async () => {
       const t = opts[+$('#nt-t').value]; if (!t) return;
       const d = await api('/api/table?connection=' + encodeURIComponent(t.connection_id) + '&table=' + encodeURIComponent(t.table));
+      if (!$('#nt-c')) return;
       $('#nt-c').innerHTML = d.columns.map(c => `<option>${esc(c.name)}</option>`).join('');
     };
     $('#nt-t').onchange = () => cols().catch(fail); cols().catch(fail);
@@ -864,7 +1181,27 @@ async function pageGraph() {
       <span><i style="border-color:#c5ccd6;border-top-style:dotted"></i>Rejected or revoked</span><span><i style="border-color:var(--red)"></i>Data changed</span></div>
       <select id="g-show"><option value="approved">Approved links</option><option value="approved+pending">Approved and waiting</option><option value="all">Everything</option></select></div>
     <div class="graph" id="g"><svg id="gsvg" role="img" aria-label="Tables and their relationships"></svg><div class="side-panel" id="g-side" hidden></div></div>
-    <p class="muted small" style="margin-top:8px">Drag to move the map, scroll to zoom, click a table or a link for details. Colours of the circles show the source.</p></div>`;
+    <p class="muted small" style="margin-top:8px">Drag to move the map, scroll to zoom, click a table or a link for details. Colours of the circles show the source.</p></div>
+    <div class="panel"><div class="head"><h2>How do two tables connect?</h2></div>
+      <p class="muted">Pick two tables to see the shortest chains of links between them, through approved and waiting relationships. Questions use approved links only.</p>
+      <div class="row"><select id="pf-a" aria-label="From table" style="flex:1;min-width:200px"></select><span class="muted">to</span>
+        <select id="pf-b" aria-label="To table" style="flex:1;min-width:200px"></select><button class="btn primary" id="pf-go">Find paths</button></div>
+      <div id="pf-out"></div></div>`;
+  const nodeOpts = [...d.nodes].sort((a, b) => a.table.localeCompare(b.table)).map(n => `<option value="${esc(n.id)}">${esc(n.table)} (${esc(n.source)})</option>`).join('');
+  $('#pf-a').innerHTML = nodeOpts; $('#pf-b').innerHTML = nodeOpts; if (d.nodes.length > 1) $('#pf-b').selectedIndex = 1;
+  let highlight = new Set();
+  $('#pf-go').onclick = async () => {
+    try {
+      const r = await api('/api/paths?from=' + encodeURIComponent($('#pf-a').value) + '&to=' + encodeURIComponent($('#pf-b').value));
+      highlight = new Set(r.paths.length ? r.paths[0].steps.map(s => s.edge_id) : []);
+      $('#pf-out').innerHTML = r.paths.length ? r.paths.map((pth, i) => `<div class="sidecard" style="margin-top:10px"><div class="row"><b style="flex:1">Path ${i + 1}: ${pth.hops} link${pth.hops === 1 ? '' : 's'}</b>
+          ${pth.all_approved ? '<span class="pill s-approved">Usable in questions</span>' : '<span class="pill s-pending">Needs approval first</span>'}</div>
+          <ol class="checks" style="margin-top:6px">${pth.steps.map(st => `<li><a href="#" data-edge="${esc(st.edge_id)}">${esc(st.label)}</a> ${pill(st.status)}</li>`).join('')}</ol></div>`).join('')
+        : '<div class="empty">No chain of up to 4 links connects these tables. Approve or add a link between them first.</div>';
+      $$('[data-edge]', $('#pf-out')).forEach(a => a.onclick = ev => { ev.preventDefault(); openRelationship(a.dataset.edge, () => route()); });
+      render();
+    } catch (e) { fail(e); }
+  };
   $('#g-show').value = show;
   $('#g-show').onchange = e => { show = e.target.value; store.set('graphshow', show); draw(); };
   const palette = ['#2357c6', '#13846e', '#ae6910', '#8a3fb5', '#c2410c', '#0e7490', '#4d7c0f', '#be185d', '#475569'];
@@ -912,7 +1249,7 @@ async function pageGraph() {
     svg.innerHTML = `<g transform="translate(${view.x},${view.y}) scale(${view.k})">${edges.map((e, i) => {
       const a = byId[e.source], b = byId[e.target];
       const dash = e.status === 'pending' ? '5 4' : (e.status === 'rejected' || e.status === 'revoked') ? '2 4' : '';
-      return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${ecolor[e.status] || '#999'}" stroke-width="${1.6 / view.k}" ${dash ? `stroke-dasharray="${dash}"` : ''} data-e="${i}" style="cursor:pointer"/>
+      return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${highlight.has(e.edge_id) ? 'var(--blue)' : (ecolor[e.status] || '#999')}" stroke-width="${(highlight.has(e.edge_id) ? 4.5 : 1.6) / view.k}" ${dash ? `stroke-dasharray="${dash}"` : ''} data-e="${i}" style="cursor:pointer"/>
         <line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="${10 / view.k}" data-e="${i}" style="cursor:pointer"/>`; }).join('')}
       ${nodes.map((n, i) => `<g data-n="${i}" style="cursor:pointer"><circle cx="${n.x}" cy="${n.y}" r="${7 / Math.sqrt(view.k)}" fill="${color(n)}" stroke="#fff" stroke-width="${1.5 / view.k}"/>
         <text x="${n.x + 9 / view.k}" y="${n.y + 4 / view.k}" style="font-size:${11 / view.k}px">${esc(n.table)}</text></g>`).join('')}</g>`;
@@ -925,8 +1262,9 @@ async function pageGraph() {
     side.innerHTML = `<div class="row"><h3 style="flex:1;margin:0">Relationship</h3><button class="btn ghost sm" id="gs-x" aria-label="Close">✕</button></div>
       <p style="margin:8px 0">${esc(e.child_table)}.<b>${esc(e.child_column)}</b><br>→ ${esc(e.parent_table)}.<b>${esc(e.parent_column)}</b></p>
       <p>${pill(e.status)} <span class="muted small">score ${e.score.toFixed(2)}</span></p>
-      <a class="btn sm" href="#review/relationships/all/${encodeURIComponent(e.child_table)}">Review this link</a>`;
+      <button class="btn sm primary" id="gs-open">Review this link</button>`;
     $('#gs-x').onclick = () => side.hidden = true;
+    $('#gs-open').onclick = () => openRelationship(e.edge_id, () => route());
   }
   function sideNode(n) {
     const links = edges.filter(e => e.source === n.id || e.target === n.id);
@@ -1072,8 +1410,16 @@ function answerCard(turn) {
 /* ================================================================== activity */
 async function pageActivity() {
   const p = setPage('activity', 'Activity');
-  const d = await api('/api/history?limit=300');
-  p.innerHTML = `<div class="panel"><p class="muted">Every decision, newest first. Names are as people entered them.</p>${eventsList(d.items)}</div>`;
+  const d = await api('/api/history?limit=500');
+  p.innerHTML = `<div class="panel"><div class="row"><p class="muted" style="flex:1;margin:0">Every decision, newest first. Names are as people entered them.</p>
+      <button class="btn sm" id="act-csv">Download the audit trail (CSV)</button></div>${eventsList(d.items)}</div>`;
+  $('#act-csv').onclick = () => {
+    const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const rows = d.items.map(e => [e.at, e.actor, e.action, e.artifact_id, e.revision, e.note]);
+    const csv = [['when', 'who', 'action', 'item', 'revision', 'note'].map(q).join(','), ...rows.map(r => r.map(q).join(','))].join('\r\n');
+    const url = URL.createObjectURL(new Blob(['\ufeff' + csv], {type: 'text/csv'}));
+    const link = document.createElement('a'); link.href = url; link.download = 'binggio-audit-trail.csv'; link.click(); URL.revokeObjectURL(url);
+  };
 }
 
 /* ================================================================== settings */

@@ -5,6 +5,6 @@
 Binggio answers questions only from meanings a person has approved (column roles,
 relationships, business terms, metrics), and refuses with the reason when it cannot.
 """
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 
 from binggio.workspace import Workspace, WorkspaceError  # noqa: E402,F401

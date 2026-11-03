@@ -12,6 +12,7 @@ for the request or the session and never written to disk.
 """
 from __future__ import annotations
 import json
+import sys
 import logging
 import os
 import secrets
@@ -223,7 +224,7 @@ def api(app: App, method, path, q, body):
                 'relationships': {s: count(rels, s) for s in ('pending', 'approved', 'rejected', 'stale', 'revoked')},
                 'concepts': len([c for c in concepts.list_concepts(root) if c['effective_status'] == 'approved']),
                 'terms': len([t for t in terms.list_terms(root) if t['kind'] == 'term' and t['effective_status'] == 'approved']),
-                'sources': _sources(ws), 'recent': store.events(root, limit=8)['items']}
+                'sources': _sources(ws), 'recent': store.events(root, limit=8)['items'], 'issues': _open_issues(root)}
 
     if path == '/api/sources' and method == 'GET':
         return {'items': _sources(ws)}
@@ -307,6 +308,40 @@ def api(app: App, method, path, q, body):
         r = onboard.create_term(root, body['connection'], body['table'], body['column'], body['value'], words,
                                 _by(body), body.get('note') or DEFAULT_NOTE, domain=body.get('domain') or 'Unassigned')
         return _artifact_public({**r, 'effective_status': r['status']})
+    if path == '/api/review/relationship' and method == 'GET':
+        return _rel_detail(root, q.get('edge') or '')
+    if path == '/api/review/relationship' and method == 'POST':
+        return _decide_relationship_one(root, body)
+    if path == '/api/review/role' and method == 'GET':
+        return _role_detail(root, q['connection'], q['table'], q['column'])
+    if path == '/api/review/definitions' and method == 'GET':
+        return _definitions(root)
+    if path == '/api/review/definitions' and method == 'POST':
+        return _decide_definition(root, body)
+    if path == '/api/autonomy' and method == 'GET':
+        from binggio.registry import autonomy
+        return {'status': autonomy.status(root), 'history': autonomy.history(root, 10)['items']}
+    if path == '/api/autonomy/preview' and method == 'GET':
+        from binggio.registry import autonomy
+        r = autonomy.preview(root)
+        from binggio.catalog import catalog
+        names = {c['id']: c['name'] for c in catalog.list_connections(root)}
+        for x in r['eligible_examples'] + r['exceptions']:
+            x['reasons'] = _plain(x.get('reasons'))
+            cid, sep, rest = str(x.get('source', '')).partition(' / ')
+            if sep: x['source'] = '%s: %s' % (names.get(cid, cid), rest)
+        return r
+    if path == '/api/autonomy' and method == 'POST':
+        return _autonomy_action(root, body)
+    if path == '/api/issues' and method == 'GET':
+        from binggio import issues
+        return {'items': issues.list_issues(root, q.get('status') or 'open'), 'counts': issues.counts(root)}
+    if path == '/api/issues' and method == 'POST':
+        from binggio import issues
+        try: return issues.decide(root, body.get('id'), body.get('action'), _by(body), body.get('note'))
+        except ValueError as e: raise ApiError(str(e))
+    if path == '/api/paths' and method == 'GET':
+        return _paths(root, q.get('from') or '', q.get('to') or '')
     if path == '/api/history':
         return store.events(root, artifact_id=q.get('artifact') or None, limit=int(q.get('limit') or 200))
 
@@ -336,6 +371,14 @@ def api(app: App, method, path, q, body):
         return {'items': _demo_samples(ws)}
 
     raise ApiError('Not found: %s %s' % (method, path), 404)
+
+
+def _open_issues(root):
+    try:
+        from binggio import issues
+        return issues.counts(root)['open']
+    except Exception:
+        return 0
 
 
 def _has(mod):
@@ -665,6 +708,13 @@ def _explain(plan, term_names=None):
 
 # ====================================================================== HTTP
 
+class _QuietServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return   # a closed browser tab is not an error
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     app: App = None
     server_version = 'binggio-ui'
@@ -681,8 +731,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'no-referrer')
         for k, v in (extra or {}).items(): self.send_header(k, v)
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.end_headers()
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass   # the browser left the page before the answer arrived; nothing to report
 
     def _host_ok(self):
         host = (self.headers.get('Host') or '').split(':')[0].strip('[]').lower()
@@ -735,7 +788,7 @@ def make_server(workspace=None, host='127.0.0.1', port=8765):
     last = None
     for p in ([port] + list(range(port + 1, port + 20)) if port else [0]):
         try:
-            srv = ThreadingHTTPServer((host, p), handler)
+            srv = _QuietServer((host, p), handler)
             srv.daemon_threads = True
             srv.app = app
             return srv
@@ -757,3 +810,195 @@ def serve(workspace=None, host='127.0.0.1', port=8765, open_browser=True):
     finally:
         srv.server_close()
     return 0
+
+
+# ---------------------------------------------------------------- review detail, definitions, autonomy, paths
+
+def _col_summary(root, cid, table, column):
+    from binggio.profiling import store as profiles
+    prof = profiles.get_table(root, cid, table) or {}
+    c = next((x for x in prof.get('columns', []) if x['name'] == column), None)
+    role = next((r for r in _all_roles(root, connection_id=cid, table=table) if r['column'] == column), None)
+    d = (role or {}).get('decision')
+    out = {'connection': cid, 'table': table, 'column': column, 'profiled': c is not None,
+           'stale': bool(prof.get('stale')), 'sample_rows': prof.get('sample_rows'), 'sample_complete': prof.get('sample_complete'),
+           'role_status': (role or {}).get('effective_status') or 'missing',
+           'approved_role': ((d or {}).get('approved') or {}).get('role'), 'suggested_role': (role or {}).get('candidate_role'),
+           'role_evidence': _plain((role or {}).get('role_evidence')), 'decision': _decision(d)}
+    if c:
+        out.update({'type': c.get('observed_type'), 'rows': c.get('observed_rows'), 'distinct': c.get('distinct_count'),
+                    'distinct_pct': c.get('distinct_pct'), 'missing': c.get('missing_count'), 'missing_pct': c.get('missing_pct'),
+                    'numeric': c.get('numeric_stats'), 'declared_key': c.get('declared_primary_key'),
+                    'findings': [f.get('message') or f.get('code') for f in c.get('findings') or []],
+                    'confidence': c.get('role_confidence_label')})
+    return out
+
+
+def _sample_values(root, cid, table, column, n=8):
+    from binggio.catalog import catalog
+    try:
+        meta = catalog.table_detail(root, cid, table, preview=60)
+    except Exception:
+        return []
+    seen = []
+    for r in meta.get('preview') or []:
+        v = r.get(column) if isinstance(r, dict) else None
+        if v not in (None, '') and v not in seen:
+            seen.append(v)
+        if len(seen) >= n: break
+    return seen
+
+
+RELATIONSHIP_RISKS = ['Both columns mean the same business thing, not just codes that happen to overlap.',
+                      'The kind of link (many to one, one to one) holds for all the data, not only the sample.',
+                      'Dates matter: effective dates or historical versions may need an as-of rule.',
+                      'Keys outside the sample may not match, or the parent may repeat a key.',
+                      'If you change a join column, the original evidence no longer supports the new mapping.']
+
+
+def _rel_detail(root, eid):
+    from binggio.registry import store
+    from binggio.discovery import store as graph
+    e = graph.get_edge(root, eid)
+    if not e: raise ApiError('Relationship not found', 404)
+    rel = next((x for x in store.list_relationships(root, limit=10 ** 7)['items'] if x['edge_id'] == eid), None)
+    d = (rel or {}).get('decision')
+    ev = e.get('evidence') or {}
+    child = _col_summary(root, e['child_connection_id'], e['child_table'], e['child_column'])
+    parent = _col_summary(root, e['parent_connection_id'], e['parent_table'], e['parent_column'])
+    child['samples'] = _sample_values(root, e['child_connection_id'], e['child_table'], e['child_column'])
+    parent['samples'] = _sample_values(root, e['parent_connection_id'], e['parent_table'], e['parent_column'])
+    hist = store.events(root, artifact_id='relationship:' + eid, limit=20)['items']
+    return {'edge_id': eid, 'child': child, 'parent': parent, 'score': e['score'], 'score_label': e.get('score_label'),
+            'freshness': e.get('freshness'), 'status': (rel or {}).get('effective_status') or 'pending',
+            'hint': ev.get('cardinality_hint'), 'revision': (d or {}).get('revision', 0),
+            'decision': {'status': d['status'], 'actor': d['actor'], 'at': d['updated_at'], 'approved': d.get('approved')} if d else None,
+            'evidence': {'coverage_pct': ev.get('distinct_coverage_pct'), 'matched': ev.get('overlapping_distinct'),
+                         'child_keys': ev.get('child_distinct_sampled'), 'parent_keys': ev.get('parent_distinct_sampled'),
+                         'parent_unique_pct': ev.get('parent_uniqueness_pct'), 'child_missing': ev.get('child_missing_sampled'),
+                         'parent_missing': ev.get('parent_missing_sampled'), 'same_family': ev.get('lexical_family_match'),
+                         'reasons': _plain(ev.get('reasons')), 'limitations': _plain(ev.get('limitations'))},
+            'prerequisites_met': child['role_status'] == 'approved' and parent['role_status'] == 'approved',
+            'risks': RELATIONSHIP_RISKS, 'history': hist}
+
+
+def _decide_relationship_one(root, b):
+    from binggio.registry import store
+    if not (b.get('note') or '').strip(): raise ApiError('Write the review rationale: what evidence did you check?')
+    kw = {}
+    if b['action'] == 'approve':
+        kw = {'cardinality': b.get('cardinality') or 'many_to_one', 'temporal_rule': b.get('temporal_rule') or '',
+              'join_note': b.get('join_note') or '', 'child_column_override': b.get('child_column_override') or '',
+              'parent_column_override': b.get('parent_column_override') or ''}
+    r = store.decide_relationship(root, b['edge_id'], action=b['action'], actor=_by(b), note=b['note'].strip(),
+                                  expected_revision=int(b.get('expected_revision') or 0), **kw)
+    return {'ok': True, 'revision': r.get('revision'), 'status': r.get('status')}
+
+
+def _role_detail(root, cid, table, column):
+    from binggio.registry import store
+    from binggio.discovery import store as graph
+    col = _col_summary(root, cid, table, column)
+    col['samples'] = _sample_values(root, cid, table, column)
+    rels = {x['edge_id']: x['effective_status'] for x in store.list_relationships(root, limit=10 ** 7)['items']}
+    links = []
+    for e in graph.all_edges(root):
+        here = ((e['child_connection_id'], e['child_table'], e['child_column']) == (cid, table, column)
+                or (e['parent_connection_id'], e['parent_table'], e['parent_column']) == (cid, table, column))
+        if here:
+            links.append({'edge_id': e['id'], 'label': '%s.%s → %s.%s' % (e['child_table'], e['child_column'], e['parent_table'], e['parent_column']),
+                          'status': rels.get(e['id'], 'pending'), 'score': e['score']})
+    defs = []
+    for x in store.list_definitions(root):
+        p = x.get('approved') or x.get('proposed') or {}
+        if any((s.get('connection_id'), s.get('table'), s.get('column')) == (cid, table, column) for s in p.get('sources') or []):
+            defs.append({'id': x['id'], 'name': p.get('name'), 'aggregation': p.get('aggregation'), 'status': x['effective_status']})
+    hist = store.events(root, artifact_id=col['decision']['id'], limit=20)['items'] if col.get('decision') else []
+    return {**col, 'links': links, 'definitions': defs, 'history': hist, 'roles': sorted(store.ROLES),
+            'checks': ['The business meaning matches the role, not just the column name.',
+                       'Missing values, duplicates and sample coverage are acceptable for how it will be used.',
+                       'It is the right kind: a business identifier, a technical key, an amount to add up, a date, or a category.']}
+
+
+def _definitions(root):
+    from binggio.registry import store
+    items = []
+    for x in store.list_definitions(root):
+        p = x.get('approved') or x.get('proposed') or {}
+        items.append({'id': x['id'], 'kind': x['kind'], 'name': p.get('name'), 'description': p.get('description'),
+                      'domain': p.get('domain'), 'owner': p.get('owner'), 'aggregation': p.get('aggregation'),
+                      'sources': p.get('sources') or [], 'status': x['effective_status'], 'stored_status': x['status'],
+                      'revision': x['revision'], 'actor': x['actor'], 'at': x['updated_at']})
+    import re as _re
+    taken = {(s['connection_id'], s['table'], s['column'], d['aggregation']) for d in items for s in d['sources']}
+    measures = [{'connection': r['connection_id'], 'table': r['table'], 'column': r['column']}
+                for r in _all_roles(root, status='approved')
+                if ((r.get('decision') or {}).get('approved') or {}).get('role') == 'MEASURE']
+    # Suggestions: approved measures whose names say they add up (amounts, balances, fees). Never approved automatically.
+    addable = _re.compile(r'(?:^|_)(amount|amt|balance|revenue|sales|fee|fees|cost|price|value|quantity|qty|total|exposure|principal|interest)(?:_|$)', _re.I)
+    not_addable = _re.compile(r'(rate|pct|percent|ratio|score|age|days|year|month|number|_no$|_id$|price)', _re.I)
+    sugg = [{'name': 'Total %s (%s)' % (m['column'].replace('_', ' ').lower(), m['table']), 'aggregation': 'SUM',
+             'ref': {'connection_id': m['connection'], 'table': m['table'], 'column': m['column']},
+             'warning': 'Check what to include and the sign convention (refunds, reversals) before approving.'}
+            for m in measures if addable.search(m['column']) and not not_addable.search(m['column'])
+            and (m['connection'], m['table'], m['column'], 'SUM') not in taken][:25]
+    return {'items': items, 'suggestions': sugg, 'measures': measures, 'aggregations': sorted(store.AGGREGATIONS - {'NONE'})}
+
+
+def _decide_definition(root, b):
+    from binggio.registry import store
+    by, note = _by(b), (b.get('note') or '').strip()
+    if not note: raise ApiError('Add a note: why is this the right definition?')
+    if b.get('action') == 'create' or (b.get('action') == 'revise'):
+        d = b.get('definition') or {}
+        definition = {'kind': 'metric', 'name': (d.get('name') or '').strip(), 'description': (d.get('description') or '').strip(),
+                      'domain': (d.get('domain') or 'General').strip(), 'owner': (d.get('owner') or by).strip(),
+                      'aggregation': d.get('aggregation'), 'sources': [{'connection_id': d['connection'], 'table': d['table'], 'column': d['column']}]}
+        if b['action'] == 'create':
+            r = store.create_definition(root, definition, actor=by, note=note)
+            return {'ok': True, 'id': r['id']}
+        cur = store.get_artifact(root, b['id'])
+        r = store.decide_definition(root, b['id'], action='revise', actor=by, note=note, expected_revision=cur['revision'], definition=definition)
+        return {'ok': True, 'id': b['id']}
+    cur = store.get_artifact(root, b['id'])
+    if cur is None: raise ApiError('Definition not found', 404)
+    store.decide_definition(root, b['id'], action=b['action'], actor=by, note=note, expected_revision=cur['revision'])
+    return {'ok': True, 'id': b['id']}
+
+
+def _autonomy_action(root, b):
+    from binggio.registry import autonomy
+    act = b.get('action')
+    if act == 'enable': return {'status': autonomy.set_enabled(root, True, b.get('confirmation'))}
+    if act == 'disable': return {'status': autonomy.set_enabled(root, False, None)}
+    if act == 'run': return autonomy.run(root)
+    if act == 'rollback': return autonomy.rollback(root, b.get('run_id'))
+    raise ApiError('Unknown action')
+
+
+def _paths(root, a, b, max_hops=4, limit=5):
+    """Shortest link paths between two tables, through approved and waiting relationships."""
+    from binggio.registry import store
+    from binggio.discovery import store as graph
+    if not a or not b or a == b: raise ApiError('Choose two different tables')
+    status = {x['edge_id']: x['effective_status'] for x in store.list_relationships(root, limit=10 ** 7)['items']}
+    adj = {}
+    for e in graph.all_edges(root):
+        st = status.get(e['id'], 'pending')
+        if st in ('rejected', 'revoked'): continue
+        u, v = e['child_connection_id'] + '::' + e['child_table'], e['parent_connection_id'] + '::' + e['parent_table']
+        step = {'edge_id': e['id'], 'status': st, 'label': '%s.%s → %s.%s' % (e['child_table'], e['child_column'], e['parent_table'], e['parent_column'])}
+        adj.setdefault(u, []).append((v, step)); adj.setdefault(v, []).append((u, step))
+    paths, frontier = [], [(a, [], {a})]
+    for _ in range(max_hops):
+        nxt = []
+        for node, steps, seen in frontier:
+            for other, step in adj.get(node, []):
+                if other in seen: continue
+                if other == b: paths.append(steps + [step])
+                else: nxt.append((other, steps + [step], seen | {other}))
+        if paths: break
+        frontier = nxt[:5000]
+    out = [{'hops': len(p), 'all_approved': all(s['status'] == 'approved' for s in p), 'steps': p} for p in paths[:limit]]
+    out.sort(key=lambda x: (not x['all_approved'], x['hops']))
+    return {'from': a, 'to': b, 'paths': out}

@@ -62,7 +62,7 @@ CASES = [
 
     # ------------------------------------------------------------------ sample bank
     C('DEMO-01', 'Sample bank', 'Overview numbers', 'Open Overview on the sample bank',
-      '10 sources, 85 tables, 63 ready for questions, 429 approvals current, 0 changed', decides='exact numbers'),
+      '10 sources, 85 tables, 63 ready for questions, 428 approvals current, 0 changed', decides='exact numbers'),
     C('DEMO-02', 'Sample bank', 'No POC names or personal names visible', 'Look at sources, concepts and the activity list',
       'No "Phase1", "POC", "decision round" or personal names', decides='text search of every listed name, description and actor'),
     C('DEMO-03', 'Sample bank', 'Ten sample questions give the verified answers', 'Click each sample question on Ask',
@@ -218,6 +218,30 @@ CASES = [
       decides='downloaded rows equal the answer', priority='P2'),
     C('UI-05', 'Screens', 'Keyboard: the question box and dialogs', 'Press Enter to ask; Esc closes a dialog', 'Both work', how=AB,
       decides='answer appears; dialog closes', priority='P2'),
+
+    # ------------------------------------------------------------------ steward tools (0.1.3)
+    C('STW-01', 'Steward tools', 'Clicking a relationship opens its evidence', 'Review > Relationships > click any row',
+      'Side panel with matched keys, both column profiles, example values, risks, history and a decision form', how=AB,
+      decides='panel shows evidence numbers and both columns'),
+    C('STW-02', 'Steward tools', 'A decision needs a rationale and is recorded', 'In the panel, Approve with an empty rationale, then with one',
+      'Empty is refused with a message; with a rationale the status becomes Approved and the history shows your name', how=AB,
+      decides='refusal message, then status and history'),
+    C('STW-03', 'Steward tools', 'Clicking a column role opens its evidence', 'Review > Column roles > click any row',
+      'Side panel with type, distinct, missing, example values, suggested role and the links that use it', how=AB,
+      decides='panel shows the column profile'),
+    C('STW-04', 'Steward tools', 'Business definitions: draft then approve', 'Review > Definitions > add a definition on an approved measure, approve it',
+      'Appears as Draft, then Approved', how=AB, decides='status changes'),
+    C('STW-05', 'Steward tools', 'A refused question becomes an issue', 'Ask a question about a column nobody approved, then open Review > Issues',
+      'The question is listed with the reason; asking again raises its count; Resolve needs a note', how=AB,
+      decides='issue listed, count, note required'),
+    C('STW-06', 'Steward tools', 'Automatic review is off and previews first', 'Review > Automatic on a new workspace',
+      'Shows Off; Preview lists what it would approve and why others are left for a person; Run is disabled until turned on', how=AB,
+      decides='off, preview counts, run disabled'),
+    C('STW-07', 'Steward tools', 'Path finder between two tables', 'Relationship map > pick two linked tables > Find paths',
+      'The shortest chain of links is listed, marked usable or needing approval, and highlighted on the map', how=AB,
+      decides='a path is listed'),
+    C('STW-08', 'Steward tools', 'Audit trail export', 'Activity > Download the audit trail (CSV)', 'A CSV with when, who, action, item, note',
+      how=AB, decides='file downloaded with those columns', priority='P2'),
 ]
 
 

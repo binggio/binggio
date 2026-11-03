@@ -49,6 +49,23 @@ workbooks or databases (with a folder picker and a "test connection" step), walk
 onboarding, approve, reject, revoke or reopen column roles, relationships, concepts and business
 terms, see the relationship map, and ask questions with the provenance of every answer.
 
+Built for data stewards:
+
+- **Review with the evidence in front of you.** Click any column or relationship to see its
+  profile, example values, how many keys matched, what depends on it and its full history, then
+  decide with a rationale. Relationships can carry an as-of rule, a business meaning, or a
+  corrected join column.
+- **Business definitions.** Give a business name one exact calculation ("Outstanding exposure =
+  total of outstanding_balance"). Binggio suggests some from approved measures; a person approves.
+- **Issues from refused questions.** Every question Binggio refuses is kept with the reason, so
+  you can see which meanings people are missing, approve them, and close the issue.
+- **Automatic review, off by default.** Approves only items that pass a strict technical check,
+  shows a preview first, records every approval, and can roll back a whole run.
+- **How do two tables connect?** A path finder on the relationship map shows the chains of
+  links between any two tables, and whether questions can use them yet.
+- **Shortcuts:** a "strong evidence only" filter for bulk approval, and a CSV export of the
+  whole audit trail.
+
 It runs on this computer only (127.0.0.1), needs no internet, and adds no dependencies. The page
 carries a random session token so other web sites cannot use it. Database passwords and model keys
 typed into it are kept in memory only, never written to disk. The sample bank includes ten

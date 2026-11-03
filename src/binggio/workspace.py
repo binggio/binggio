@@ -122,6 +122,8 @@ class Workspace:
             raise WorkspaceError('The demo bank is not bundled with this installation')
         shutil.copytree(src, root, dirs_exist_ok=True)
         (root / MARKER).write_text(json.dumps({'format': FORMAT, 'kind': 'binggio-workspace', 'demo': bool(locked)}, indent=2), encoding='utf-8')
+        from binggio.registry import autonomy
+        autonomy.set_enabled(root, False, None)   # automatic approval starts off; a person turns it on
         return cls(root)
 
     # ------------------------------------------------------------ sources
@@ -283,8 +285,15 @@ class Workspace:
             answer, plan, cohort = execute_question(self.root, sid, question, canonical_plan=plan)
         except PipelineFailure as e:
             sessions.append(self.root, sid, rev, question, 'blocked', str(e))
-            return {'status': 'refused', 'stage': e.stage, 'code': e.code, 'message': str(e),
-                    'hints': getattr(e, 'hints', [])}
+            refusal = {'status': 'refused', 'stage': e.stage, 'code': e.code, 'message': str(e),
+                       'hints': getattr(e, 'hints', [])}
+            try:
+                from binggio import issues
+                issue = issues.record(self.root, question, refusal)
+                if issue: refusal['issue'] = issue['id']
+            except Exception:
+                pass   # keeping the issue must never stop the refusal reaching the user
+            return refusal
         if cohort: cohort['from_turn'] = 'pending'
         tid, _ = sessions.append(self.root, sid, rev, question, 'answered', plan=plan, cohort=cohort, response=answer)
         if cohort:

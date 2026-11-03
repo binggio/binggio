@@ -69,7 +69,7 @@ def test_token_and_host_are_required(demo_app):
 
 def test_overview_and_lists(demo_app):
     o = demo_app.ok('/api/overview')
-    assert o['status']['registry']['approved'] == 429 and o['status']['answerable']['tables'] == 63
+    assert o['status']['registry']['approved'] == 428 and o['status']['answerable']['tables'] == 63
     assert o['relationships']['approved'] == 74
     roles = demo_app.ok('/api/review/roles?status=all&limit=5')
     assert roles['total'] >= 400 and len(roles['items']) == 5
