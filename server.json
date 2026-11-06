@@ -8,12 +8,12 @@
     "source": "github"
   },
   "websiteUrl": "https://www.binggio.com",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "binggio",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"

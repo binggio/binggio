@@ -214,12 +214,9 @@ def _read_source(project,table_id,ctx):
     conn=conns[cid]
     p=profiles.get_table(project,cid,table,include_stale=True)
     if not p or p['stale']:raise SemanticBlocked('Source profile changed; re-profile and reapprove')
-    src=resolve_source(project,conn['source_path'],conn['kind'])
-    if conn['kind']=='csv_folder':
-        path=(src/(table+'.csv')).resolve()
-        if not path.is_relative_to(src) or not path.is_file():raise SemanticBlocked('CSV source path no longer exists')
-        headers,rows,meta=_sample_csv(path,EXECUTION_ROW_LIMIT)
-    else:headers,rows,meta=_sample_sqlite(src,table,EXECUTION_ROW_LIMIT)
+    from binggio import prepared
+    try:headers,rows,meta=prepared.read(project,conn,table,EXECUTION_ROW_LIMIT)   # data fixes applied
+    except ConnectionErrorSafe as exc:raise SemanticBlocked(str(exc)) from exc
     if not meta['sample_complete']:
         raise SemanticBlocked('Table %s has more than %d rows; this version answers from tables up to that size and refuses partial answers' % (table,EXECUTION_ROW_LIMIT))
     if profiles.current_fingerprint(project,conn,table)!=p['fingerprint']:
@@ -308,6 +305,6 @@ def execute(project:Path,plan:dict,ctx:dict):
                 'technical_not_business_approved':bool(ctx['metrics'].get(plan['metric'],{}).get('technical_only')),
                 'result_is_bounded':True,
                 'session_cohort_applied':cohort is not None,'session_latest_applied':latest is not None,
-                'limitations':['Answers read whole tables up to 1,000,000 rows','Current local self-attested approvals only',
+                'limitations':['Answers read whole tables (up to 1,000,000 rows on this route)','Current local self-attested approvals only',
                                'No temporal semantics, multi-hop aggregation, or production IAM']}}
     finally:db.close()

@@ -184,11 +184,25 @@ def table_detail(project: Path, cid: str, name: str, *, preview: int = 10) -> di
         if c["kind"] == "csv_folder":
             p=(source/(name+".csv")).resolve()
             if not p.is_relative_to(source):raise ConnectionErrorSafe("CSV source escaped folder")
-            meta=read_csv_metadata(p,preview=preview)
+            # The full scan (row count, missing values, warnings) ran when the source was added and
+            # is stored; here only the first rows are read, so large files open instantly.
+            meta={"columns":json.loads(t["columns_json"]),"row_count":t["row_count"],
+                  "warnings":json.loads(t["warnings_json"]),"scan_status":t["scan_status"],
+                  "preview":_csv_preview(p,preview)}
         else:meta=read_sqlite_metadata(source,name,preview=preview)
         return {"connection_id":cid,"connection_name":c["name"],"schema":t["schema_name"],
                 "table":name,"source_kind":c["kind"],**meta,
                 "note":"Basic technical metadata only. Semantic roles and relationships are not yet verified."}
+
+
+def _csv_preview(path: Path, n: int) -> list:
+    if n <= 0: return []
+    from binggio.profiling.profiler import _sample_csv
+    try:
+        header, rows, _ = _sample_csv(path, n)
+    except ConnectionErrorSafe:
+        return []
+    return [dict(zip(header, ['' if v is None else str(v).strip() for v in r])) for r in rows]
 
 
 def overview(project: Path) -> dict:

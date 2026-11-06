@@ -49,7 +49,23 @@ def _is_missing(v: Any) -> bool:
     return v is None or (isinstance(v,str) and v.strip().casefold() in MISSING)
 
 
+_DATE_SHAPE = re.compile(r'^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}(?:[ T]\d{1,2}:\d{2}:\d{2})?$')
+_DATE_CACHE: dict = {}
+
+
 def _date_parse(v: str) -> str | None:
+    # Only text shaped like a date is tried against the formats (strptime is slow), and each
+    # distinct value is worked out once.
+    if not _DATE_SHAPE.match(v):return None
+    hit=_DATE_CACHE.get(v,0)
+    if hit!=0:return hit
+    fmt=_date_parse_slow(v)
+    if len(_DATE_CACHE)>200_000:_DATE_CACHE.clear()
+    _DATE_CACHE[v]=fmt
+    return fmt
+
+
+def _date_parse_slow(v: str) -> str | None:
     for fmt in DATE_FORMATS:
         try:
             d=datetime.strptime(v,fmt)
@@ -247,14 +263,56 @@ def _content_sha256(path: Path, st) -> str:
     key = (str(path.resolve()), st.st_size, st.st_mtime_ns)
     hit = _HASH_CACHE.get(key)
     if hit: return hit
-    h = hashlib.sha256()
-    with open(path, 'rb') as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b''):
-            h.update(chunk)
-    digest = h.hexdigest()
-    if len(_HASH_CACHE) > 4096: _HASH_CACHE.clear()
-    _HASH_CACHE[key] = digest
-    return digest
+    with _hash_lock(key[0]):          # concurrent page requests wait for one read, not one each
+        hit = _HASH_CACHE.get(key) or _disk_cache_get(key)
+        if not hit:
+            h = hashlib.sha256()
+            with open(path, 'rb') as fh:
+                for chunk in iter(lambda: fh.read(1 << 22), b''):
+                    h.update(chunk)
+            hit = h.hexdigest()
+            _disk_cache_put(key, hit)
+        if len(_HASH_CACHE) > 20000: _HASH_CACHE.clear()
+        _HASH_CACHE[key] = hit
+        return hit
+
+
+_LOCKS: dict = {}
+_LOCKS_GUARD = __import__('threading').Lock()
+
+
+def _hash_lock(name):
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(name, __import__('threading').Lock())
+
+
+def _disk_cache():
+    """~/.binggio/fingerprints.sqlite3: file hashes by (path, size, modified time), so a restart
+    does not re-read gigabytes. A changed file has a new size or time and is hashed again."""
+    import sqlite3
+    d = Path.home() / '.binggio'
+    d.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(d / 'fingerprints.sqlite3', timeout=5)
+    db.execute('CREATE TABLE IF NOT EXISTS hashes (path TEXT, size INTEGER, mtime_ns INTEGER, sha256 TEXT, PRIMARY KEY(path, size, mtime_ns))')
+    return db
+
+
+def _disk_cache_get(key):
+    try:
+        with _disk_cache() as db:
+            r = db.execute('SELECT sha256 FROM hashes WHERE path=? AND size=? AND mtime_ns=?', key).fetchone()
+        return r[0] if r else None
+    except Exception:
+        return None
+
+
+def _disk_cache_put(key, digest):
+    try:
+        with _disk_cache() as db:
+            db.execute('DELETE FROM hashes WHERE path=?', (key[0],))
+            db.execute('INSERT OR REPLACE INTO hashes VALUES (?,?,?,?)', (*key, digest))
+    except Exception:
+        pass
 
 
 def _fingerprint(source: Path, kind: str, table: str) -> dict:
@@ -268,7 +326,7 @@ def _fingerprint(source: Path, kind: str, table: str) -> dict:
 
 
 _TERMINAL = {'master','history','log','directory','lines','line','table','data','details','detail','list','register','records','record','tbl','dim','fact'}
-_GENERIC_KEY = {'id','key','code','ref','reference','identifier','uuid','no','num','nbr','number','record'}
+_GENERIC_KEY = {'id','key','code','ref','reference','identifier','uuid','no','num','nbr','number','record','row','line','seq','sequence','serial','sr','sno','idx','index'}
 
 
 def _words(name: str) -> list:
@@ -319,7 +377,7 @@ def _refine_key_roles(table: str, cols: list) -> None:
             if ks and all(w in tw for w in ks): own = c; break
     if own is None and cols and cols[0] in cands and _key_subject(cols[0]['name']) != []:
         own = cols[0]
-    if own is None and cols and cols[0] in cands and cols[0]['name'].casefold() in ('id', 'record_id', 'code', 'key', 'no', 'number', 'ref', 'uuid'):
+    if own is None and cols and cols[0] in cands and (cols[0]['name'].casefold() in ('id', 'record_id', 'code', 'key', 'no', 'number', 'ref', 'uuid') or _key_subject(cols[0]['name']) == []):
         own = cols[0]   # a lookup list keyed by a plain "code" or "id" in its first column
     for c in cols:
         if c is own:
@@ -347,17 +405,19 @@ def _manifest_primary_key(folder: Path, table: str) -> set:
 def profile_table(project: Path, connection: dict, table: str, *, limit: int=SAMPLE_LIMIT) -> dict:
     if not (1<=int(limit)<=SAMPLE_LIMIT):raise ConnectionErrorSafe('Sample limit outside 1..2500')
     kind=connection['kind'];source=resolve_source(project,connection['source_path'],kind)
+    from binggio import prepared
     if kind=='csv_folder':
         if table not in set(p.stem for p in source.glob('*.csv') if p.is_file()):
             raise ConnectionErrorSafe('Table not found in registered CSV folder')
         csv_path=source/(table+'.csv')
         if not csv_path.resolve().is_relative_to(source):
             raise ConnectionErrorSafe('CSV source escaped registered folder')
-        header,rows,meta=_sample_csv(csv_path,limit)
+        # Data fixes (if any) are applied: the profile describes the data as Binggio reads it.
+        header,rows,meta=prepared.read(project,connection,table,limit)
         meta['declared_primary_keys']=_manifest_primary_key(source,table)
-    elif kind=='sqlite':header,rows,meta=_sample_sqlite(source,table,limit)
+    elif kind=='sqlite':header,rows,meta=prepared.read(project,connection,table,limit)
     else:raise ConnectionErrorSafe('Unsupported connector')
-    fp=_fingerprint(source,kind,table)
+    fp=_with_fixes(project,connection,table,_fingerprint(source,kind,table))
     cols=[_column(name,[row[i] for row in rows],table,kind,
                   name in meta.get('declared_primary_keys',set())) for i,name in enumerate(header)]
     _refine_key_roles(table,cols)
@@ -384,6 +444,15 @@ def profile_table(project: Path, connection: dict, table: str, *, limit: int=SAM
         'disclaimer':'Sample-based technical evidence and heuristic semantic role candidates; no relationship, business definition or key is approved.'}
 
 
+def _with_fixes(project, connection, table, fp):
+    # A table's data fixes are part of what was profiled and approved: adding or removing one
+    # changes the fingerprint, so approvals made on the other version become stale.
+    from binggio import prepared
+    sig=prepared.signature(project,connection['id'],table)
+    if sig:fp={**fp,'fixes':sig}
+    return fp
+
+
 def current_fingerprint(project: Path, connection: dict, table: str) -> dict:
     source=resolve_source(project,connection['source_path'],connection['kind'])
-    return _fingerprint(source,connection['kind'],table)
+    return _with_fixes(project,connection,table,_fingerprint(source,connection['kind'],table))

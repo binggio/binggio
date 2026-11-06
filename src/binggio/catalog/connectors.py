@@ -51,6 +51,18 @@ def _unwrapped_row(row: list[str], delim: str) -> list[str]:
     return row
 
 
+FULL_SCAN_BYTES = 100 * 1024 * 1024   # files above this get a fast scan: detail on the first rows only
+SCAN_ROWS_LARGE = 200_000
+
+
+def _count_lines(path: Path) -> int:
+    n, last = 0, b'\n'
+    with path.open('rb') as fh:
+        for chunk in iter(lambda: fh.read(1 << 22), b''):
+            n += chunk.count(b'\n'); last = chunk[-1:]
+    return n + (0 if last == b'\n' else 1)
+
+
 def read_csv_metadata(path: Path, *, preview: int = MAX_PREVIEW) -> dict[str, Any]:
     warnings: list[str] = []
     if path.stat().st_size > MAX_CSV_BYTES:
@@ -93,9 +105,12 @@ def read_csv_metadata(path: Path, *, preview: int = MAX_PREVIEW) -> dict[str, An
     padded_cells = 0
     blanks = [0] * len(header)
     sample_values: list[list[str]] = [[] for _ in header]
+    big = path.stat().st_size > FULL_SCAN_BYTES
     try:
         for raw in reader:
             if not raw or not any(x.strip() for x in raw):continue
+            if big and row_count >= SCAN_ROWS_LARGE:
+                break   # large file: detailed checks on the first rows, row count from line breaks below
             row = _unwrapped_row(raw, delimiter)
             row_count += 1
             if len(row) != len(header):malformed += 1
@@ -112,6 +127,10 @@ def read_csv_metadata(path: Path, *, preview: int = MAX_PREVIEW) -> dict[str, An
         warnings.append("CSV contains malformed quoting; partial scan only")
     finally:
         handle.close()
+    scanned = row_count
+    if big and row_count >= SCAN_ROWS_LARGE:
+        row_count = _count_lines(path) - 1
+        warnings.append(f"Large file: checked the first {scanned:,} rows in detail; row count estimated from line breaks")
     if malformed:warnings.append(f"{malformed} rows differ from header width")
     if padded_cells:warnings.append(f"{padded_cells} values have leading/trailing whitespace")
     if any(blanks):warnings.append("Missing or null-like values observed; detailed profiling is Phase 5")
@@ -123,7 +142,7 @@ def read_csv_metadata(path: Path, *, preview: int = MAX_PREVIEW) -> dict[str, An
         if all(re.fullmatch(r"\d{4}[-/]\d{2}[-/]\d{2}", v) for v in present):return "date-like"
         return "text/mixed"
     columns = [{"name": h, "declared_type": None, "observed_type": inferred(sample_values[i]),
-                "missing_count": blanks[i], "missing_pct": round(100 * blanks[i] / row_count, 1) if row_count else 0}
+                "missing_count": blanks[i], "missing_pct": round(100 * blanks[i] / scanned, 1) if scanned else 0}
                for i, h in enumerate(header)]
     return {"columns": columns, "row_count": row_count, "preview": rows,
             "warnings": warnings, "scan_status": "scanned", "delimiter": "TAB" if delimiter == "\t" else delimiter}

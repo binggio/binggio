@@ -399,6 +399,20 @@ def observed_status_report(project,u,source_override=None):
         for i,fid in enumerate(ids):
             if _status_field(u,fid):by_table[tid].append((i,fid))
     for tid,fields in by_table.items():
+        if source_override is None and _answer_cache_on():
+            try:
+                from binggio.engine import answer_cache
+                for index,fid in fields:
+                    values=answer_cache.distinct(project,u,tid,index,MAX_LABELS)
+                    bad=next((v for v in values if not isinstance(v,str) or not _SAFE_CODE.fullmatch(v)),None)
+                    if bad is not None:report['unbounded_fields'].append({'field_id':fid,'reason':'values are not short codes (free text, numbers or spaces)'})
+                    elif len(values)>MAX_LABELS:report['unbounded_fields'].append({'field_id':fid,'reason':'more than '+str(MAX_LABELS)+' distinct values'})
+                    elif values:report['domains'][fid]=sorted(values)
+            except Exception as e:
+                if not isinstance(e,Blocked) and not _is_source_integrity_error(e):raise
+                report['skipped_sources'].append({'table_id':tid,'reason':str(e)[:200],'fields':[fid for _,fid in fields]})
+                log.warning('Label discovery skipped %s: %s',tid,str(e)[:200])
+            continue
         try:records=source_override(tid) if source_override else _load_source(project,u,tid)
         except Blocked as e:
             # No inferred labels from unreadable snapshots, but make it visible.
@@ -1278,29 +1292,41 @@ def _load_source(project,u,tid):
     columns,rows=result
     _need(isinstance(columns,list) and isinstance(rows,list),'Source reader result is malformed')
     _need(len(rows)<=MAX_SOURCE_ROWS,'Source table exceeds the %d-row limit for answers' % MAX_SOURCE_ROWS)
+    return list(arrange_rows(u,tid,columns,rows))
+
+
+def arrange_rows(u,tid,columns,rows):
+    """Approved fields of each source row, in the approved order and normal form (numbers parsed,
+    join keys normalised, YYYY/MM/DD dates as YYYY-MM-DD). A generator, so a large table can be
+    streamed into the answer cache without holding it in memory."""
     names=[u.fields[fid]['name'] for fid in u.by_table[tid]]
     _need(len(names)==len(set(names)), 'Approved source has duplicate column names')
     positions={name:[i for i,col in enumerate(columns) if str(col)==name] for name in names}
     _need(all(len(idxs)==1 for idxs in positions.values()),'Approved field is absent/ambiguous in physical source '+str(tid))
-    arranged=[]
+    plan=[]
+    for fid,name in zip(u.by_table[tid],names):
+        f=u.fields[fid]
+        kind=('num' if _type_for_field(f)=='REAL' else 'key' if fid in getattr(u,'normalized_keys',()) else
+              'date' if _date_field(f) else 'text')
+        plan.append((positions[name][0],kind,name))
+    width=len(columns)
     for row in rows:
-        _need(isinstance(row,(list,tuple)) and len(row)==len(columns),'Malformed source row in '+str(tid))
+        _need(isinstance(row,(list,tuple)) and len(row)==width,'Malformed source row in '+str(tid))
         out=[]
-        for fid,name in zip(u.by_table[tid],names):
-            value=row[positions[name][0]]
+        for i,kind,name in plan:
+            value=row[i]
             if value is None or str(value).strip()=='':out.append(None);continue
-            if _type_for_field(u.fields[fid])=='REAL':
+            if kind=='num':
                 try:v=parse_number(value)
                 except (ValueError,TypeError) as e:raise Blocked('Non-numeric value in approved measure '+name) from e
                 _need(math.isfinite(v),'Non-finite approved measure '+name)
                 out.append(v)
-            elif fid in getattr(u,'normalized_keys',()):out.append(normalize_key(value))
-            elif _date_field(u.fields[fid]):
+            elif kind=='key':out.append(normalize_key(value))
+            elif kind=='date':
                 text=str(value).strip();m=_SLASH_ISO_DATE.fullmatch(text)
                 out.append(m.group(1)+'-'+m.group(2)+'-'+m.group(3) if m else text)
             else:out.append(str(value))
-        arranged.append(out)
-    return arranged
+        yield out
 
 
 def _recheck_provenance(project,u,prior,profile_override=None):
@@ -1553,7 +1579,9 @@ def _check_date_comparisons(u,plan,loaded):
         checked.add(fid);tid=info['table_id']
         if tid not in loaded:continue
         idx=u.by_table[tid].index(fid)
-        bad=[r[idx] for r in loaded[tid] if r[idx] is not None and not _ISO_DATE.fullmatch(str(r[idx]))]
+        counted=loaded[tid].bad_dates(idx) if hasattr(loaded[tid],'bad_dates') else None
+        if counted is not None:bad=[None]*counted
+        else:bad=[r[idx] for r in loaded[tid] if r[idx] is not None and not _ISO_DATE.fullmatch(str(r[idx]))]
         _need(not bad,'Dates in '+fid+' are not all in YYYY-MM-DD form ('+str(len(bad))+
               ' values differ), so date comparisons on it would be unreliable. The source needs correcting before this question can be answered')
 
@@ -1573,6 +1601,13 @@ def _empty_result_context(u,plan,loaded):
         tid=info['table_id']
         if tid not in loaded:continue
         idx=u.by_table[tid].index(fid)
+        if hasattr(loaded[tid],'minmax'):
+            count,lo,hi=loaded[tid].minmax(idx)
+            entry={'field':fid,'op':op,'value':f['value'],'non_empty_values':count}
+            if count:entry.update(observed_min=lo,observed_max=hi)
+            out.append(entry)
+            if len(out)>=5:break
+            continue
         values=[r[idx] for r in loaded[tid] if r[idx] is not None]
         entry={'field':fid,'op':op,'value':f['value'],'non_empty_values':len(values)}
         if values:
@@ -1632,10 +1667,18 @@ def answerability_hints(project,u,question,profile_source=None,source_reader=Non
                 if t.get('status')=='not_profiled':continue
                 p=profiles.get_table(project,t['connection_id'],t['table'],include_stale=True)
                 if p:yield t['connection_id'],t['table'],p
+    distinct_reader=None
     if source_reader is None:
         def source_reader(tid):
             from binggio.context import execution
             return execution._read_source(project,tid,u.ctx)
+        def distinct_reader(tid,column):
+            # whole-table distinct values from the prepared copy, without reading every row here
+            from binggio import prepared
+            from binggio.catalog import catalog
+            t=u.tables[tid];conn=next(c for c in catalog.list_connections(project) if c['id']==t['connection_id'])
+            vals=prepared.distinct_values(project,conn,t['table'],column,1000)
+            return None if vals is None else {str(v).strip() for v in vals if v not in (None,'')}
     approved_fields=set(u.fields)
     entity_words=set()
     for t in u.tables.values():entity_words|=_terms(str(t.get('table','')).replace('_',' '))
@@ -1655,14 +1698,21 @@ def answerability_hints(project,u,question,profile_source=None,source_reader=Non
             label=None;labels=None
             low_card=(c.get('observed_type')=='text' and 0<int(c.get('distinct_count') or 99)<=MAX_LABELS)
             if low_card and tid in u.tables:
-                if source is None:
-                    try:source=source_reader(tid)
-                    except Exception:source=False
-                if source:
-                    headers,rows=source
-                    if c['name'] in headers:
-                        i=headers.index(c['name'])
+                found=None
+                if distinct_reader is not None:
+                    try:found=distinct_reader(tid,c['name'])
+                    except Exception:found=None
+                    have=found is not None
+                else:
+                    if source is None:
+                        try:source=source_reader(tid)
+                        except Exception:source=False
+                    have=bool(source) and c['name'] in source[0]
+                    if have:
+                        headers,rows=source;i=headers.index(c['name'])
                         found={str(r[i]).strip() for r in rows if r[i] not in (None,'')}
+                if have:
+                    if True:
                         if found and all(_SAFE_CODE.fullmatch(v) for v in found):
                             labels=frozenset(found);label_sets[labels]+=1
                             for value in sorted(found):
@@ -1692,6 +1742,10 @@ def answerability_hints(project,u,question,profile_source=None,source_reader=Non
     return hints
 
 
+def _answer_cache_on():
+    return os.environ.get('BINGGIO_ANSWER_CACHE','on').lower()!='off'
+
+
 def execute(project,u,plan,prior=None,source_override=None,profile_override=None):
     _recheck_provenance(project,u,prior if plan['cohort'] else None,profile_override)
     compiler=Compiler(u,plan,prior)
@@ -1703,7 +1757,18 @@ def execute(project,u,plan,prior=None,source_override=None,profile_override=None
     try:
         con.execute('PRAGMA trusted_schema=OFF')
         loaded={}
+        attached=False
         for tid in sorted(compiler.needed_src):
+            if source_override is None and not (plan['latest'] and plan['latest']['table']==tid) and _answer_cache_on():
+                # Large tables: approved fields are read once into the on-disk answer cache and
+                # queried from there (see answer_cache); the rows are never loaded into memory.
+                from binggio.engine import answer_cache
+                name,n,info=answer_cache.table(project,u,tid)
+                if not attached:
+                    con.execute('ATTACH DATABASE ? AS ac',(str(answer_cache.path(project)),));attached=True
+                con.execute('CREATE TEMP VIEW '+_quote('src_'+tid)+' AS SELECT * FROM ac."'+name+'"')
+                loaded[tid]=answer_cache.DiskRows(con,'ac',name,n,info)
+                continue
             definitions=','.join('c'+str(i)+' '+_type_for_field(u.fields[fid]) for i,fid in enumerate(u.by_table[tid]))
             con.execute('CREATE TABLE '+_quote('src_'+tid)+' ('+definitions+')')
             records=(source_override(tid) if source_override else _load_source(project,u,tid))

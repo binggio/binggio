@@ -18,6 +18,7 @@ Ranking (standard library only):
 from __future__ import annotations
 import math
 import re
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -99,6 +100,20 @@ def _num(v):
     except ValueError: return None
 
 
+_MISSING = {'', 'null', 'none', 'n/a', 'na', 'nan', '?'}
+
+
+def _norm_all(values):
+    """discovery._value for a whole column at once (same result, much faster)."""
+    out = []
+    app = out.append
+    for v in values:
+        if v is None: app(None); continue
+        s = str(v).strip().casefold()
+        app(None if s in _MISSING else s)
+    return out
+
+
 def _words(name):
     return name.replace('_', ' ').strip().lower()
 
@@ -124,27 +139,62 @@ class Source:
             if a['child_connection_id'] == cid == a['parent_connection_id'] and a['cardinality'] in ('many_to_one', 'one_to_one'):
                 self.links[a['child_table']].append((a['child_column'], a['parent_table'], a['parent_column']))
         self._data = {}
+        self._full = {}
+        self._lookups = {}
+        self._dims = {}
+        self.partial = set()
+
+    def _cols(self, t):
+        cols = set(self.roles.get(t, {}))
+        cols |= {c for c, _, _ in self.links.get(t, [])}
+        cols |= {pc for ts in self.links.values() for _, pt, pc in ts if pt == t}
+        return sorted(cols)
 
     def table(self, t):
+        """(columns, rows) of t's approved columns, first STORY_ROWS rows (data fixes applied)."""
         if t not in self._data:
-            h, rows, _ = _read_sample(self.root, self.conn, t, 1_000_000)
-            self._data[t] = (h, rows)
-        return self._data[t]
+            from binggio import prepared
+            cols = self._cols(t)
+            data = prepared.column_values(self.root, self.conn, t, cols, STORY_ROWS) if cols else {}
+            n = len(next(iter(data.values()))) if data else 0
+            self._data[t] = (cols, data, n)
+            if prepared.row_count(self.root, self.conn, t) > STORY_ROWS: self.partial.add(t)
+        cols, data, n = self._data[t]
+        return cols, data, n
+
+    def nrows(self, t):
+        return self.table(t)[2]
 
     def col(self, t, c):
-        h, rows = self.table(t); i = h.index(c)
-        return [r[i] if i < len(r) else None for r in rows]
+        cols, data, n = self.table(t)
+        return data[c] if c in data else [None] * n
+
+    def full_col(self, t, c):
+        """Every row of one column: lookups into a referenced table must see all of it."""
+        k = (t, c)
+        if k not in self._full:
+            from binggio import prepared
+            self._full[k] = prepared.column_values(self.root, self.conn, t, [c], 10 ** 9)[c]
+        return self._full[k]
 
     def lookup(self, t, key, col):
-        keys, vals = self.col(t, key), self.col(t, col)
-        return {_value(k): v for k, v in zip(keys, vals) if _value(k) is not None}
+        k = (t, key, col)
+        if k not in self._lookups:
+            m = dict(zip(_norm_all(self.full_col(t, key)), self.full_col(t, col)))
+            m.pop(None, None)
+            self._lookups[k] = m
+        return self._lookups[k]
+
+    def keys(self, t, c):
+        return _norm_all(self.col(t, c))
 
     def dimensions(self, t):
         """[(label, values aligned with t's rows, path)]: t's own categories, and those of tables it
         points to through approved links in this source, up to two steps (sales -> vehicles -> models)."""
+        if t in self._dims: return self._dims[t]
         out = [(_words(c), self.col(t, c), [t]) for c, r in self.roles[t].items() if r in DIM_ROLES]
         for ccol, pt, pcol in self.links.get(t, []):
-            kv = [_value(k) for k in self.col(t, ccol)]
+            kv = self.keys(t, ccol)
             for c, r in self.roles.get(pt, {}).items():
                 if r in DIM_ROLES:
                     m = self.lookup(pt, pcol, c)
@@ -152,11 +202,12 @@ class Source:
             for ccol2, pt2, pcol2 in self.links.get(pt, []):          # second step
                 if pt2 == t: continue
                 bridge = self.lookup(pt, pcol, ccol2)
-                sk = [_value(bridge.get(k)) for k in kv]
+                sk = _norm_all(bridge.get(k) for k in kv)
                 for c, r in self.roles.get(pt2, {}).items():
                     if r in DIM_ROLES:
                         m = self.lookup(pt2, pcol2, c)
                         out.append((self._label(pt2, c), [m.get(k) for k in sk], [t, pt, pt2]))
+        self._dims[t] = out
         return out
 
     @staticmethod
@@ -166,6 +217,11 @@ class Source:
 
 
 # ------------------------------------------------------------------ facts
+
+STORY_ROWS = 200_000   # rows read per table; facts on bigger tables say they come from the first rows
+BUDGET_SECONDS = 60     # testing stops after this; the page says how many measures were skipped
+KW_MAX = 20_000         # values per group used for the Kruskal-Wallis test (evenly spread); totals use all rows
+
 
 def build(root, connection_id, top=6, table=None):
     """The strongest facts in one source; with `table`, the facts about that table (its own
@@ -190,25 +246,31 @@ def build(root, connection_id, top=6, table=None):
     # headline: the busiest table with a summable measure (for one table without one: its row count)
     sums = [m for m in measures if m[3] == 'sum']
     if table and not sums:
-        h, rows = src.table(table)
-        facts.append({'kind': 'headline', 'score': 10, 'title': '%s %s' % ('{:,}'.format(len(rows)), _words(table)),
+        nrow = src.nrows(table)
+        facts.append({'kind': 'headline', 'score': 10, 'title': '%s %s' % ('{:,}'.format(nrow), _words(table)),
                       'detail': 'All %s rows of %s. Approve an amount or count column as a measure to see totals and what drives them.' % (
-                          '{:,}'.format(len(rows)), table), 'chart': None, 'tables': [table]})
+                          '{:,}'.format(nrow), table), 'chart': None, 'tables': [table]})
     if sums:
         t, c, vals, _ = max(sums, key=lambda m: len(m[2]))
         tot = sum(v for v in vals if v is not None)
         facts.append({'kind': 'headline', 'score': 10, 'title': '%s %s, %s in total %s' % ('{:,}'.format(len(vals)), _words(t), _fmt(tot), _words(c)),
                       'detail': 'All %s rows of %s; total of the approved measure %s.' % ('{:,}'.format(len(vals)), t, c),
                       'chart': None, 'tables': [t]})
-    # drivers
+    # drivers (time-bounded: a source with very many measures and categories says what it skipped)
+    deadline = time.monotonic() + BUDGET_SECONDS
+    skipped = 0
     for t, c, vals, agg in measures:
+        if time.monotonic() > deadline:
+            skipped += 1; continue
         for label, dvals, path in src.dimensions(t):
+            if time.monotonic() > deadline:
+                skipped += 1; break
             groups = defaultdict(list)
             for v, d in zip(vals, dvals):
                 if v is not None and d not in (None, ''): groups[str(d).strip()].append(v)
             groups = {k: g for k, g in groups.items() if len(g) >= MIN_GROUP}
             if not 2 <= len(groups) <= MAX_GROUPS: continue
-            res = kruskal(list(groups.values()))
+            res = kruskal([g if len(g) <= KW_MAX else g[::max(1, len(g) // KW_MAX)] for g in groups.values()])
             if not res: continue
             eta = eta_squared(list(groups.values()))
             if eta > 0.98: continue      # the dimension just restates the measure (one value per group)
@@ -239,8 +301,8 @@ def build(root, connection_id, top=6, table=None):
     # concentration: top 3 references by row count (and by the table's summable measure)
     for t in tables:
         for ccol, pt, pcol in src.links.get(t, []):
-            keys = [_value(k) for k in src.col(t, ccol)]
-            nparent = len({_value(k) for k in src.col(pt, pcol)} - {None})
+            keys = src.keys(t, ccol)
+            nparent = len(set(src.lookup(pt, pcol, pcol)))
             if nparent < 8: continue
             m = next((x for x in sums if x[0] == t), None)
             w = m[2] if m else [1.0] * len(keys)
@@ -263,9 +325,10 @@ def build(root, connection_id, top=6, table=None):
         if not dates: continue
         dcol = dates[0]
         m = next((x for x in sums if x[0] == t), None)
-        months = defaultdict(float)
+        months = defaultdict(float); mcache = {}
         for i, dv in enumerate(src.col(t, dcol)):
-            mm = _month(dv)
+            mm = mcache.get(dv, 0)
+            if mm == 0: mm = mcache[dv] = _month(dv)
             if mm: months[mm] += (m[2][i] or 0) if m else 1
         keys = sorted(months)
         if len(keys) < 6: continue
@@ -280,8 +343,8 @@ def build(root, connection_id, top=6, table=None):
     # gaps: referenced rows that nothing points to
     for t in tables:
         for ccol, pt, pcol in src.links.get(t, []):
-            used = {_value(k) for k in src.col(t, ccol)}
-            allk = {_value(k) for k in src.col(pt, pcol)} - {None}
+            used = set(src.keys(t, ccol))
+            allk = set(src.lookup(pt, pcol, pcol))
             unused = allk - used
             if allk and 0.02 <= len(unused) / len(allk) <= 0.8:
                 used_n = len(allk) - len(unused)
@@ -297,8 +360,17 @@ def build(root, connection_id, top=6, table=None):
         pick += sorted((f for f in facts if f['kind'] == kind), key=lambda f: -f['score'])[:1]
     rest = sorted((f for f in facts if f not in pick), key=lambda f: -f['score'])
     pick = (pick + rest)[:top if not table else max(top, 8)]
+    for f in pick:   # facts drawn from a table larger than the rows read say so, in plain words
+        cut = [t for t in f.get('tables') or [] if t in src.partial]
+        if cut:
+            f['partial'] = True
+            f['detail'] = f['detail'].replace('All %s rows of' % '{:,}'.format(STORY_ROWS), 'The first %s rows of' % '{:,}'.format(STORY_ROWS))
+            f['detail'] += ' Based on the first %s rows of %s; the table has more.' % ('{:,}'.format(STORY_ROWS), ', '.join(cut))
+            if f['kind'] == 'headline':
+                f['title'] = f['title'].replace('{:,}'.format(STORY_ROWS) + ' ', 'First ' + '{:,}'.format(STORY_ROWS) + ' ', 1)
     return {'source': src.conn['name'], 'connection': connection_id, 'facts': pick, 'tables': all_tables, 'table': table,
-            'considered': {'measures': len(measures), 'pairs_tested': len(drivers), 'facts_found': len(facts)},
+            'considered': {'measures': len(measures), 'pairs_tested': len(drivers), 'facts_found': len(facts), 'skipped_for_time': skipped,
+                           'rows_per_table': STORY_ROWS},
             'asks': [f['ask'] for f in pick if f.get('ask')][:3]}
 
 

@@ -210,6 +210,10 @@ pre{white-space:pre-wrap;word-break:break-word;background:#f3f5f8;border-radius:
 tr.click{cursor:pointer} tr.click:hover td{background:var(--paper)}
 .dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;margin:8px 0}.dl dt{color:var(--muted)}.dl dd{margin:0}
 @media (max-width:700px){.drawer .grid2{grid-template-columns:1fr}}
+ol.fixes{margin:0 0 8px;padding-left:20px} ol.fixes li{margin:0 0 8px}
+.checkcols{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0;max-height:150px;overflow:auto}
+.checkcols label{white-space:nowrap}
+#gsvg line[marker-end]{pointer-events:stroke}
 </style>
 </head>
 <body>
@@ -227,12 +231,19 @@ const fmt = n => n == null ? '–' : Number(n).toLocaleString();
 const store = {get(k,d){try{const v=localStorage.getItem('binggio.'+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
                set(k,v){try{localStorage.setItem('binggio.'+k,JSON.stringify(v))}catch(e){}}};
 
+/* Every page load gets a navigation number. A reply that arrives after the person has moved to
+   another page is dropped (a "stale" error that nothing shows), so a slow page can never write
+   into the page that replaced it ("Cannot set properties of null") or wipe it. */
+let NAVSEQ = 0;
+class Stale extends Error { constructor() { super('stale'); this.stale = true; } }
 async function api(path, body) {
+  const at = NAVSEQ;
   const opt = {headers: {'X-Binggio-Token': TOKEN}};
   if (body !== undefined) { opt.method = 'POST'; opt.body = JSON.stringify(body); opt.headers['Content-Type'] = 'application/json'; }
   let r;
   try { r = await fetch(path, opt); } catch (e) { throw new Error('Binggio is not running. Start it again with: binggio ui'); }
   const data = await r.json().catch(() => ({error: 'Unexpected reply from Binggio'}));
+  if (at !== NAVSEQ && body === undefined) throw new Stale();
   if (!r.ok) throw new Error(data.error || ('Error ' + r.status));
   return data;
 }
@@ -240,7 +251,7 @@ function toast(msg, err) {
   const d = document.createElement('div'); d.textContent = msg; if (err) d.className = 'err';
   $('#toast').appendChild(d); setTimeout(() => d.remove(), err ? 7000 : 3500);
 }
-const fail = e => toast(e.message || String(e), true);
+const fail = e => { if (e && e.stale) return; toast(e.message || String(e), true); };
 
 const ROLE = {PRIMARY_KEY_CANDIDATE:'Primary key', FOREIGN_KEY_CANDIDATE:'Foreign key', IDENTIFIER:'Identifier', MEASURE:'Measure',
   DATE:'Date', CLASSIFICATION:'Category', STATUS:'Status', TEXT:'Text', UNKNOWN:'Unknown'};
@@ -427,6 +438,7 @@ async function refreshBadges() {
   } catch (e) {}
 }
 function setPage(key, title) {
+  S.cur = key;
   $$('[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === key));
   $('#title').textContent = title; document.title = title + ' · Binggio';
   const p = $('#page'); p.innerHTML = '<div class="empty">Loading…</div>'; return p;
@@ -441,8 +453,12 @@ async function route() {
   if (!$('.app')) shell();
   const [key, ...rest] = (location.hash.slice(1) || 'home').split('/').map(decodeURIComponent);
   const fn = ROUTES[key] || pageHome;
-  try { await fn(...rest); } catch (e) { $('#page').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
-  refreshBadges();
+  const nav = ++NAVSEQ;
+  try { await fn(...rest); } catch (e) {
+    if (e.stale || nav !== NAVSEQ) return;          // the person moved on; this page's late reply is not shown
+    const p = $('#page'); if (p) p.innerHTML = `<div class="err-box">${esc(e.message)}</div>`;
+  }
+  if (nav === NAVSEQ) refreshBadges();
 }
 window.addEventListener('hashchange', route);
 
@@ -647,30 +663,222 @@ async function pageSources() {
 
 /* ================================================================== explore */
 async function pageExplore(cid, table) {
-  const p = setPage('explore', 'Explore tables');
-  const [{items}, srcs] = [await api('/api/tables'), (await api('/api/sources')).items];
-  const names = Object.fromEntries(srcs.map(s => [s.id, s.name]));
-  if (!items.length) { p.innerHTML = '<div class="panel empty">No tables yet. <a href="#sources">Add data</a> first.</div>'; return; }
-  if (!table) { const first = items.find(t => !cid || t.connection_id === cid) || items[0]; cid = first.connection_id; table = first.table; }
-  const groups = {}; items.forEach(t => (groups[t.connection_id] = groups[t.connection_id] || []).push(t));
-  p.innerHTML = `<div class="split"><div class="panel" style="padding:10px"><input type="text" id="tf" placeholder="Filter tables" style="width:100%;margin-bottom:6px">
-    <div class="list scroll" style="max-height:70vh" id="tl">${Object.entries(groups).map(([c, ts]) => `<div class="grp">${esc(names[c] || c)}</div>${ts.map(t =>
-      `<a href="#explore/${encodeURIComponent(c)}/${encodeURIComponent(t.table)}" class="${c === cid && t.table === table ? 'on' : ''}" data-n="${esc(t.table.toLowerCase())}">${esc(t.table)}${t.status !== 'profiled' ? ' ' + pill(t.status) : ''}</a>`).join('')}`).join('')}</div></div>
-    <div id="td"><div class="empty">Loading…</div></div></div>`;
-  $('#tf').oninput = e => { const v = e.target.value.toLowerCase(); $$('#tl a').forEach(a => a.hidden = !a.dataset.n.includes(v)); };
+  // Switching tables keeps the list (and its scroll position): only the right-hand side reloads.
+  const inPlace = table && S.cur === 'explore' && $('#tl') && $('#td');
+  let items, names;
+  if (inPlace) {
+    names = S.exploreNames || {};
+    $$('#tl a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === `#explore/${encodeURIComponent(cid)}/${encodeURIComponent(table)}`));
+    $('#td').innerHTML = '<div class="empty">Loading…</div>';
+  } else {
+    const p = setPage('explore', 'Explore tables');
+    const [t, srcs] = [await api('/api/tables'), (await api('/api/sources')).items];
+    items = t.items;
+    names = S.exploreNames = Object.fromEntries(srcs.map(s => [s.id, s.name]));
+    if (!items.length) { p.innerHTML = '<div class="panel empty">No tables yet. <a href="#sources">Add data</a> first.</div>'; return; }
+    if (!table) { const first = items.find(t => !cid || t.connection_id === cid) || items[0]; cid = first.connection_id; table = first.table; }
+    const groups = {}; items.forEach(t => (groups[t.connection_id] = groups[t.connection_id] || []).push(t));
+    p.innerHTML = `<div class="split"><div class="panel" style="padding:10px"><input type="text" id="tf" placeholder="Filter tables" style="width:100%;margin-bottom:6px">
+      <div class="list scroll" style="max-height:70vh" id="tl">${Object.entries(groups).map(([c, ts]) => `<div class="grp">${esc(names[c] || c)}</div>${ts.map(t =>
+        `<a href="#explore/${encodeURIComponent(c)}/${encodeURIComponent(t.table)}" class="${c === cid && t.table === table ? 'on' : ''}" data-n="${esc(t.table.toLowerCase())}">${esc(t.table)}${t.status !== 'profiled' ? ' ' + pill(t.status) : ''}</a>`).join('')}`).join('')}</div></div>
+      <div id="td"><div class="empty">Loading…</div></div></div>`;
+    $('#tf').oninput = e => { const v = e.target.value.toLowerCase(); $$('#tl a').forEach(a => a.hidden = !a.dataset.n.includes(v)); };
+  }
   const d = await api('/api/table?connection=' + encodeURIComponent(cid) + '&table=' + encodeURIComponent(table));
-  $('#td').innerHTML = `<div class="panel"><div class="head"><h2>${esc(table)} <span class="muted" style="font-weight:400">· ${esc(names[cid] || cid)}</span></h2>
+  const td = $('#td'); if (!td) return;
+  const fixedCols = new Set((d.fixes || []).map(f => f.column));
+  td.innerHTML = `<div class="panel"><div class="head"><h2>${esc(table)} <span class="muted" style="font-weight:400">· ${esc(names[cid] || cid)}</span></h2>
     ${d.stale ? pill('stale') : ''}<a class="btn sm" href="#review/roles//${encodeURIComponent(table)}">Review its columns</a></div>
-    <p class="muted small">${d.profiled ? `Profiled from ${fmt(d.sample_rows)} rows${d.sample_complete ? ' (all rows)' : ' (a sample)'}${d.preview.row_count != null ? ' · ' + fmt(d.preview.row_count) + ' rows in the table' : ''}.` : 'Not profiled yet.'}</p>
-    <div class="scroll"><table class="t"><tr><th>Column</th><th>Type</th><th class="num">Distinct</th><th class="num">Empty</th><th>Suggested role</th><th>Approved</th></tr>
-    ${d.columns.map(c => `<tr><td><b>${esc(c.name)}</b>${c.declared_key ? ' <span class="pill k-entity">declared key</span>' : ''}${c.findings.length ? `<div class="faint small">${c.findings.map(f => esc(f.message || f.code || f)).join('; ')}</div>` : ''}</td>
+    <p class="muted small">${d.profiled ? `Profiled from ${fmt(d.sample_rows)} rows${d.sample_complete ? ' (all rows)' : ' (a sample)'}${d.preview.row_count != null ? ' · ' + fmt(d.preview.row_count) + ' rows in the table' : ''}.` : 'Not profiled yet.'}
+      ${(d.fixes || []).length ? ` <b>${d.fixes.length} data fix${d.fixes.length === 1 ? '' : 'es'}</b> applied when this table is read.` : ''}</p>
+    <div class="scroll"><table class="t"><tr><th>Column</th><th>Type</th><th class="num">Distinct</th><th class="num">Empty</th><th>Suggested role</th><th>Approved</th><th></th></tr>
+    ${d.columns.map(c => `<tr><td><b>${esc(c.name)}</b>${c.declared_key ? ' <span class="pill k-entity">declared key</span>' : ''}${fixedCols.has(c.name) ? ' <span class="pill k-extends" title="A data fix changes how this column is read">fixed</span>' : ''}${c.findings.length ? `<div class="faint small">${c.findings.map(f => esc(f.message || f.detail || f.code || f)).join('; ')}</div>` : ''}</td>
       <td>${esc(c.type)}</td><td class="num">${fmt(c.distinct)}</td><td class="num">${c.missing_pct == null ? '–' : c.missing_pct + '%'}</td>
-      <td title="${esc((c.evidence || []).join('\n'))}">${esc(ROLE[c.suggested] || c.suggested || '')}</td><td>${c.status === 'approved' ? esc(ROLE[c.approved_role] || c.approved_role) : pill(c.status || 'pending')}</td></tr>`).join('')}</table></div></div>
-    <div class="panel"><h2>Relationships</h2>${d.links.length ? `<table class="t"><tr><th>From</th><th>To</th><th class="num">Score</th></tr>${d.links.map(l => `<tr>
+      <td title="${esc((c.evidence || []).join('\n'))}">${esc(ROLE[c.suggested] || c.suggested || '')}</td><td>${c.status === 'approved' ? esc(ROLE[c.approved_role] || c.approved_role) : pill(c.status || 'pending')}</td>
+      <td>${S.state.demo ? '' : `<button class="btn ghost sm" data-fixcol="${esc(c.name)}" title="Add a data fix for this column">Fix…</button>`}</td></tr>`).join('')}</table></div></div>
+    <div class="grid2" style="align-items:start">
+      <div class="panel" id="fx-panel"><div class="head"><h2>Data fixes</h2>${S.state.demo ? '' : '<button class="btn sm primary" id="fx-add">Add a fix</button>'}</div><div id="fx-body"><div class="empty">Loading…</div></div></div>
+      <div class="panel" id="kt-panel"><div class="head"><h2>Key tools</h2></div><div id="kt-body"></div></div></div>
+    <div class="panel"><div class="head"><h2>Relationships</h2>${S.state.demo ? '' : `<button class="btn sm" id="ex-link">Add a relationship</button>`}</div>${d.links.length ? `<table class="t"><tr><th>From</th><th>To</th><th class="num">Score</th></tr>${d.links.map(l => `<tr>
       <td>${esc(l.child.table)}.<b>${esc(l.child.column)}</b></td><td>${esc(l.parent.table)}.<b>${esc(l.parent.column)}</b></td><td class="num">${l.score.toFixed(2)}</td></tr>`).join('')}</table>
-      <p style="margin-top:10px"><a href="#review/relationships//${encodeURIComponent(table)}">Review these links</a></p>` : '<p class="muted">No candidate relationships found for this table.</p>'}</div>
-    <div class="panel flush"><div style="padding:16px 18px 8px"><h2 style="margin:0">First rows</h2></div><div class="scroll" style="max-height:340px">
+      <p style="margin-top:10px"><a href="#review/relationships//${encodeURIComponent(table)}">Review these links</a></p>` : `<p class="muted">No candidate relationships found for this table. <a href="#review/relationships/all">See why</a>, or add one yourself.</p>`}</div>
+    <div class="panel flush"><div style="padding:16px 18px 8px"><h2 style="margin:0">First rows</h2><p class="muted small" style="margin:4px 0 0">As Binggio reads them${(d.fixes || []).length ? ', with the data fixes applied' : ''}. The source file is never changed.</p></div><div class="scroll" style="max-height:340px">
     <table class="t"><tr>${d.preview.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr>${d.preview.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></div></div>`;
+  const reload = () => pageExplore(cid, table).catch(fail);
+  $$('[data-fixcol]', td).forEach(b => b.onclick = () => fixModal(cid, table, {column: b.dataset.fixcol}, reload));
+  if ($('#fx-add')) $('#fx-add').onclick = () => fixModal(cid, table, {}, reload);
+  if ($('#ex-link')) $('#ex-link').onclick = () => linkModal({child: {connection: cid, table}}, reload);
+  fixesPanel(cid, table, reload).catch(e => { if (!e.stale && $('#fx-body')) $('#fx-body').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; });
+  keyTools(cid, table, d, reload);
+}
+
+/* ------------------------------------------------------------------ data fixes */
+const FIX_HELP = {
+  trim: 'Spaces at the start or end make "C001 " and "C001" different keys.',
+  case: 'Codes written in mixed case ("Open", "OPEN") become one value.',
+  number: 'Currency signs, thousands separators, units and % are removed: "$1,234.50" becomes 1234.5, "(500)" becomes -500. Values with no number become empty.',
+  replace: 'Exact values are replaced, for example N/A or - with empty, or Y with YES.',
+  missing: 'Empty values are filled. The average, median or most common value is worked out on the whole table each time it is read.',
+  pad: 'Keys written without leading zeros ("42") are padded ("000042") so they match the other table.',
+  strip_prefix: 'A prefix such as "CUST-" is removed so the key matches the other table.',
+  add_prefix: 'A prefix such as "C" is added so the key matches the other table.',
+  digits: 'Only the digits are kept: "CUST-000042" becomes 000042 (or 42 without leading zeros).',
+  date: 'Dates written as 03/04/2026 are read in the form you choose and stored as 2026-04-03.',
+  combine: 'A new column joins several columns ("L001|C042"): a key made of two columns, for a table no single column identifies.',
+  dedupe: 'Only the first row for each key value is kept; later rows with the same key are left out when the table is read.'};
+async function fixesPanel(cid, table, reload) {
+  const d = await api('/api/fixes?connection=' + encodeURIComponent(cid) + '&table=' + encodeURIComponent(table));
+  const el = $('#fx-body'); if (!el) return;
+  const notes = (d.prepared || {}).notes || {};
+  el.innerHTML = `${d.active.length ? `<ol class="fixes">${d.active.map(f => { const n = notes[f.id];
+      return `<li><div class="row"><b style="flex:1">${esc(f.label)}</b>${S.state.demo ? '' : `<button class="btn ghost sm" data-rm="${esc(f.id)}">Remove</button>`}</div>
+      <div class="small muted">${esc(f.note)} · ${esc(f.created_by)}, ${esc(String(f.created_at).slice(0, 10))}${n && n.rows_changed != null ? ` · ${fmt(n.rows_changed)} rows changed${n.filled_with != null ? ' (filled with ' + esc(n.filled_with) + ')' : ''}` : ''}</div></li>`; }).join('')}</ol>`
+    : `<p class="muted">No data fixes. Fixes correct how this table is read (spaces, number formats, missing values, key formats, duplicates) without changing the source file, and are applied again every time the data is refreshed.</p>`}
+    ${d.removed.length ? `<details><summary class="small">${d.removed.length} removed fix${d.removed.length === 1 ? '' : 'es'}</summary><ul class="small muted">${d.removed.map(f => `<li>${esc(f.label)}: removed by ${esc(f.removed_by)} (${esc(f.removed_note || '')})</li>`).join('')}</ul></details>` : ''}
+    <div id="fx-job"></div>`;
+  $$('[data-rm]', el).forEach(b => b.onclick = async () => {
+    try {
+      const by = await needReviewer();
+      const note = await askText('Remove this fix', 'The table is read without it from now on; approvals on this table will need re-confirming.', 'Why is it removed?', '');
+      if (!note) return;
+      const r = await api('/api/fixes', {action: 'remove', id: b.dataset.rm, connection: cid, table, by, note});
+      watchJob(r.job, $('#fx-job'), j => { if (j.status === 'done') { toast('Fix removed'); reload(); } });
+    } catch (e) { fail(e); }
+  });
+}
+function fixParams(kind, cols, preset) {
+  const colChecks = (name, chosen) => `<div class="checkcols">${cols.map(c => `<label class="small"><input type="checkbox" name="${name}" value="${esc(c)}" ${chosen.includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</div>`;
+  const p = preset.params || {};
+  switch (kind) {
+    case 'case': return `<label class="f">Change to<select id="fp-to"><option value="upper">UPPER CASE</option><option value="lower">lower case</option></select></label>`;
+    case 'replace': return `<div class="fields"><label class="f">Values to replace (separate with commas)<input id="fp-values" placeholder="N/A, -, unknown" value="${esc((p.values || []).join(', '))}"></label>
+      <label class="f">Replace with (leave empty for an empty value)<input id="fp-to" value="${esc(p.to || '')}"></label></div>`;
+    case 'missing': return `<div class="fields"><label class="f">Fill with<select id="fp-with"><option value="value">A value I give</option><option value="zero">0</option><option value="mean">The average (numbers)</option><option value="median">The median (numbers)</option><option value="most_common">The most common value</option></select></label>
+      <label class="f">Value<input id="fp-value" placeholder="e.g. UNKNOWN"></label></div>`;
+    case 'pad': return `<div class="fields"><label class="f">Width<input id="fp-width" type="number" min="1" max="64" value="${esc(p.width || 6)}"></label><label class="f">Pad with<input id="fp-char" maxlength="1" value="${esc(p.char || '0')}"></label></div>`;
+    case 'strip_prefix': return `<div class="fields"><label class="f">Text to remove at the start<input id="fp-text" placeholder="CUST-" value="${esc(p.text || '')}"></label><label class="small" style="align-self:end"><input type="checkbox" id="fp-ic" checked> Ignore upper/lower case</label></div>`;
+    case 'add_prefix': return `<label class="f">Text to add at the start<input id="fp-text" placeholder="C" value="${esc(p.text || '')}"></label>`;
+    case 'digits': return `<label class="small"><input type="checkbox" id="fp-dz" ${p.drop_leading_zeros ? 'checked' : ''}> Also remove leading zeros (000042 becomes 42)</label>`;
+    case 'date': return `<label class="f">The column's dates look like<select id="fp-fmt">${(S.fixInfo.date_formats || []).map(f => `<option value="${esc(f)}">${esc(f.replace('%d', 'DD').replace('%m', 'MM').replace('%Y', 'YYYY').replace('%y', 'YY').replace('%b', 'Mon').replace('%H:%M:%S', 'hh:mm:ss'))}</option>`).join('')}</select></label>`;
+    case 'combine': return `<label class="f">Name of the new column<input id="fp-name" placeholder="loan_key" value="${esc(preset.name || '')}"></label><div class="small muted">Columns to combine, in this order:</div>${colChecks('fp-cols', p.columns || [])}
+      <label class="f" style="max-width:160px">Separator<input id="fp-sep" maxlength="3" value="${esc(p.sep || '|')}"></label>`;
+    case 'dedupe': return `<div class="small muted">Key column(s): rows that repeat these values are left out, keeping the first.</div>${colChecks('fp-cols', p.columns || [])}`;
+    default: return '';
+  }
+}
+function readFixParams(kind, bg) {
+  const v = id => ($('#' + id, bg) || {}).value;
+  const ch = id => !!($('#' + id, bg) || {}).checked;
+  const cols = () => $$('input[name="fp-cols"]', bg).filter(x => x.checked).map(x => x.value);
+  switch (kind) {
+    case 'case': return {to: v('fp-to')};
+    case 'replace': return {values: v('fp-values'), to: v('fp-to')};
+    case 'missing': return {with: v('fp-with'), value: v('fp-value')};
+    case 'pad': return {width: +v('fp-width'), char: v('fp-char')};
+    case 'strip_prefix': return {text: v('fp-text'), ignore_case: ch('fp-ic')};
+    case 'add_prefix': return {text: v('fp-text')};
+    case 'digits': return {drop_leading_zeros: ch('fp-dz')};
+    case 'date': return {format: v('fp-fmt')};
+    case 'combine': return {columns: cols(), sep: v('fp-sep')};
+    case 'dedupe': return {columns: cols()};
+    default: return {};
+  }
+}
+async function fixModal(cid, table, preset, onDone) {
+  try {
+    const info = S.fixInfo = await api('/api/fixes?connection=' + encodeURIComponent(cid) + '&table=' + encodeURIComponent(table));
+    const kinds = Object.entries(info.kinds);
+    let kind = preset.kind || 'trim';
+    const body = `<p class="muted small" style="margin-top:0">A data fix changes how Binggio reads <b>${esc(table)}</b>, never the source file, and is applied again whenever the data is refreshed. Approvals on this table will need re-confirming afterwards, because the data they were made on changes.</p>
+      <div class="fields"><label class="f">What to do<select id="fx-kind">${kinds.map(([k, l]) => `<option value="${k}" ${k === kind ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      <label class="f" id="fx-colwrap">Column<select id="fx-col">${info.columns.map(c => `<option ${c === preset.column ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label></div>
+      <p class="small muted" id="fx-help"></p><div id="fx-params"></div>
+      <label class="f">Why this fix is right (kept with it)<textarea id="fx-note" rows="2" maxlength="600" placeholder="e.g. the export pads keys with spaces"></textarea></label>
+      <div class="row"><button class="btn sm" id="fx-try">Preview on the first rows</button></div><div id="fx-prev"></div>`;
+    S.fixCtx = {cid, table};
+    const done = modal('Add a data fix', body, [['Cancel', '', null], ['Add the fix', 'primary', null]]);
+    const bg = [...document.querySelectorAll('.modal-bg')].pop();
+    const save = [...$$('.mf button', bg)].pop();
+    save.onclick = async () => {          // closes only when the fix was saved, so a mistake keeps the form
+      try {
+        const by = await needReviewer();
+        const k = $('#fx-kind', bg).value;
+        save.disabled = true;
+        const r = await api('/api/fixes', {action: 'add', connection: cid, table, kind: k, column: k === 'combine' ? $('#fp-name', bg).value.trim() : $('#fx-col', bg).value,
+          params: readFixParams(k, bg), by, note: $('#fx-note', bg).value});
+        bg._close(r);
+      } catch (e) { save.disabled = false; fail(e); }
+    };
+    const r = await done;
+    if (!r) return;
+    toast('Fix added. Applying it to every row…');
+    const box = $('#fx-job');
+    if (box) watchJob(r.job, box, j => { if (j.status === 'done') { toast('Data fix applied'); onDone && onDone(); } });
+    else onDone && onDone();
+  } catch (e) { fail(e); }
+}
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'fx-kind') paintFixForm(e.target.closest('.modal'));
+});
+document.addEventListener('click', async e => {
+  if (!e.target || e.target.id !== 'fx-try') return;
+  const bg = e.target.closest('.modal'); const box = $('#fx-prev', bg);
+  const {cid, table} = S.fixCtx || {};
+  const k = $('#fx-kind', bg).value;
+  box.innerHTML = '<div class="empty">Checking…</div>';
+  try {
+    const r = await api('/api/fixes/preview', {connection: cid, table, kind: k, column: k === 'combine' ? $('#fp-name', bg).value.trim() : $('#fx-col', bg).value, params: readFixParams(k, bg)});
+    box.innerHTML = `<div class="note-box small">${k === 'combine' ? `On the first ${fmt(r.rows_checked)} rows: ${fmt(r.duplicates_in_checked_rows)} repeated value(s), ${fmt(r.missing)} empty.`
+        : k === 'dedupe' ? `On the first ${fmt(r.rows_checked)} rows, ${fmt(r.rows_removed_in_checked_rows)} row(s) would be left out.`
+        : `On the first ${fmt(r.rows_checked)} rows, ${fmt(r.changed)} value(s) change${r.became_empty ? `, ${fmt(r.became_empty)} become empty` : ''}.${r.fill != null ? ' Fill value: ' + esc(r.fill) + '.' : ''} ${esc(r.note || '')}`}</div>
+      ${r.warning ? `<div class="warn-box small">${esc(r.warning)}</div>` : ''}
+      ${(r.examples || []).length ? `<table class="t small"><tr>${r.examples[0].before !== undefined ? '<th>Before</th>' : ''}<th>After</th></tr>${r.examples.map(x => `<tr>${x.before !== undefined ? `<td><code>${esc(x.before)}</code></td>` : ''}<td><code>${esc(x.after)}</code></td></tr>`).join('')}</table>` : ''}`;
+  } catch (err) { box.innerHTML = `<div class="err-box">${esc(err.message)}</div>`; }
+});
+function paintFixForm(bg) {
+  if (!bg || !$('#fx-kind', bg)) return;
+  const k = $('#fx-kind', bg).value;
+  $('#fx-help', bg).textContent = FIX_HELP[k] || '';
+  $('#fx-colwrap', bg).hidden = (k === 'combine' || k === 'dedupe');
+  $('#fx-params', bg).innerHTML = fixParams(k, S.fixInfo.columns, S.fixPreset || {});
+  $('#fx-prev', bg).innerHTML = '';
+}
+new MutationObserver(() => { const m = document.querySelector('.modal #fx-kind'); if (m && !m.dataset.painted) { m.dataset.painted = '1'; paintFixForm(m.closest('.modal')); } })
+  .observe(document.body, {childList: true, subtree: true});
+
+/* ------------------------------------------------------------------ key tools */
+function keyTools(cid, table, d, reload) {
+  const el = $('#kt-body'); if (!el) return;
+  const keyish = c => /(^|_)(id|no|num|nbr|code|key|ref|number|uuid)$/i.test(c.name) || ['PRIMARY_KEY_CANDIDATE', 'FOREIGN_KEY_CANDIDATE', 'IDENTIFIER'].includes(c.suggested);
+  const cols = [...d.columns].sort((a, b) => keyish(b) - keyish(a));
+  el.innerHTML = `<p class="muted small" style="margin-top:0">Check whether a column, or several together, identifies every row: on <b>all</b> rows, not a sample. A key a table is known by must be unique and never empty, or joined totals count rows twice.</p>
+    <div class="checkcols">${cols.map(c => `<label class="small"><input type="checkbox" class="kt-c" value="${esc(c.name)}"> ${esc(c.name)}</label>`).join('')}</div>
+    <div class="row" style="margin-top:8px"><button class="btn sm" id="kt-go">Check on all rows</button></div><div id="kt-out"></div>`;
+  $('#kt-go').onclick = async () => {
+    const chosen = $$('.kt-c', el).filter(x => x.checked).map(x => x.value);
+    if (!chosen.length) return toast('Tick one or more columns');
+    const out = $('#kt-out'); out.innerHTML = '<div class="empty">Checking every row…</div>';
+    try {
+      const r = await api('/api/keys?connection=' + encodeURIComponent(cid) + '&table=' + encodeURIComponent(table) + '&columns=' + encodeURIComponent(chosen.join(',')));
+      const name = chosen.join(' + ');
+      out.innerHTML = `<div class="${r.unique ? 'note-box' : 'warn-box'} small"><b>${esc(name)}</b>: ${fmt(r.rows)} rows, ${fmt(r.distinct)} different values${r.missing_rows ? `, ${fmt(r.missing_rows)} empty` : ''}${r.duplicate_rows ? `, <b>${fmt(r.duplicate_rows)} rows repeat a value (${r.duplicate_pct}%)</b>` : ''}.
+          ${r.unique ? ' Unique and never empty on every row: it can be the table\'s key.' : ' Not a key as it stands.'}</div>
+        ${r.examples.length ? `<div class="small muted">Most repeated values</div><table class="t small"><tr><th>Value</th><th class="num">Rows</th></tr>${r.examples.map(x => `<tr><td><code>${esc(x.value)}</code></td><td class="num">${fmt(x.rows)}</td></tr>`).join('')}</table>` : ''}
+        <div class="row" style="margin-top:8px">${S.state.demo ? '' : r.unique ? (chosen.length === 1 ? `<button class="btn sm good" id="kt-make">Make ${esc(name)} the table's key</button>` : `<button class="btn sm primary" id="kt-combine">Create this combined key</button>`)
+          : `<button class="btn sm" id="kt-dedupe">Keep one row for each value…</button>${chosen.length === 1 ? '<span class="small muted">or tick another column and check the combination</span>' : `<button class="btn sm" id="kt-combine">Combine anyway…</button>`}`}</div>`;
+      if ($('#kt-make')) $('#kt-make').onclick = async () => {
+        try {
+          const by = await needReviewer();
+          const note = await askText('Make it the table\'s key', `Approves ${name} as the key of ${table}. It was checked on all ${fmt(r.rows)} rows. Relationship discovery then uses it as a parent key.`, 'Why does it identify the rows?', '');
+          if (!note) return;
+          await api('/api/keys/make', {connection: cid, table, column: chosen[0], by, note});
+          toast('Approved as the table\'s key. Run discovery again to find links to it.'); reload();
+        } catch (e) { fail(e); }
+      };
+      if ($('#kt-combine')) $('#kt-combine').onclick = () => { S.fixPreset = {name: chosen.map(c => c.replace(/_(id|no|code|key|ref|number)$/i, '')).join('_') + '_key', params: {columns: chosen, sep: '|'}}; fixModal(cid, table, {kind: 'combine'}, reload).finally(() => S.fixPreset = null); };
+      if ($('#kt-dedupe')) $('#kt-dedupe').onclick = () => { S.fixPreset = {params: {columns: chosen}}; fixModal(cid, table, {kind: 'dedupe'}, reload).finally(() => S.fixPreset = null); };
+    } catch (e) { out.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+  };
 }
 
 /* ================================================================== onboard */
@@ -737,7 +945,13 @@ async function pageReview(tab, status, table) {
   const p = setPage('review', 'Review');
   const o = S.overview || await api('/api/overview');
   const cnt = {roles: o.roles.pending + o.roles.stale, relationships: o.relationships.pending + o.relationships.stale, issues: o.issues || 0};
-  p.innerHTML = `<div class="tabs">${Object.entries(titles).map(([k, l]) => `<a href="#review/${k}" class="${k === tab ? 'on' : ''}">${l}${cnt[k] ? `<span class="n">${fmt(cnt[k])} ${k === 'issues' ? 'open' : 'to review'}</span>` : ''}</a>`).join('')}</div><div id="rv"></div>`;
+  p.innerHTML = `<div class="tabs">${Object.entries(titles).map(([k, l]) => `<a href="#review/${k}" class="${k === tab ? 'on' : ''}">${l}${cnt[k] ? `<span class="n">${fmt(cnt[k])} ${k === 'issues' ? 'open' : 'to review'}</span>` : ''}</a>`).join('')}</div>
+    ${tab === 'relationships' ? `<div class="panel"><div class="head"><h2>Relationships</h2>${S.state.demo ? '' : '<button class="btn sm primary" id="rv-addlink">Add a relationship</button>'}</div><div id="rv-report"><div class="empty">Loading what discovery tried…</div></div></div>` : ''}<div id="rv"></div>`;
+  if (tab === 'relationships') {
+    const total = Object.values(o.relationships).reduce((a, b) => a + b, 0);
+    if ($('#rv-addlink')) $('#rv-addlink').onclick = () => linkModal({}, () => route());
+    discoveryReport($('#rv-report'), !total || o.relationships.pending + o.relationships.approved === 0).catch(e => { if (!e.stale && $('#rv-report')) $('#rv-report').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; });
+  }
   if (tab === 'roles' || tab === 'relationships') return reviewList(tab, status || (cnt[tab] ? 'pending' : 'all'), table || '');
   if (tab === 'definitions') return reviewDefinitions();
   if (tab === 'issues') return reviewIssues(status || 'open');
@@ -873,6 +1087,9 @@ async function openRelationship(edgeId, onChange) {
         : `<div class="warn-box">Approve the key columns first: <b>${esc(c.column)}</b> is ${esc(STATUS[c.role_status] || c.role_status)}, <b>${esc(p.column)}</b> is ${esc(STATUS[p.role_status] || p.role_status)}. Questions use a link only when both its columns are approved.</div>`}
       <div class="kpis">${kpi(pct(ev.coverage_pct), 'child values found in the parent')}${kpi(fmt(ev.matched) + ' / ' + fmt(ev.child_keys), 'distinct keys matched')}
         ${kpi(pct(ev.parent_unique_pct), 'parent key unique')}${kpi(fmt((ev.child_missing || 0) + (ev.parent_missing || 0)), 'missing keys')}</div>
+      ${ev.manual ? `<div class="note-box small"><b>Added by ${esc(ev.added_by)}</b>${ev.added_at ? ' on ' + esc(String(ev.added_at).slice(0, 10)) : ''}: ${esc(ev.added_note || '')}. Binggio did not propose it; the numbers above were measured on every row when it was added.
+        ${d.status !== 'approved' && !S.state.demo ? ' <button class="btn ghost sm" id="rd-remove">Remove this link</button>' : ''}</div>` : ''}
+      ${(ev.warnings || []).length ? `<div class="warn-box small">${ev.warnings.map(esc).join('<br>')}</div>` : ''}
       <ul class="checks">${(ev.reasons || []).map(r => `<li>${esc(r)}</li>`).join('')}</ul>
       <div class="sec grid2">${colCard(c, 'Many side (child)')}${colCard(p, 'One side (parent)')}</div>
       <div class="sec"><h3>Check before you approve</h3><ul class="checks">${d.risks.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
@@ -894,6 +1111,13 @@ async function openRelationship(edgeId, onChange) {
         ${!current ? '<p class="small" style="color:var(--red);margin-top:8px">The tables changed since this link was found. Profile and discover again before approving.</p>' : ''}</div>
       <div class="sec"><h3>History</h3>${eventsList(d.history)}</div>`;
     $$('[data-col]', dr.body).forEach(b => b.onclick = () => { const [cid, t, col] = JSON.parse(b.dataset.col); openRole(cid, t, col, () => { onChange && onChange(); draw().catch(fail); }); });
+    if ($('#rd-remove', dr.body)) $('#rd-remove', dr.body).onclick = async () => {
+      try {
+        const by = await needReviewer();
+        if (!await confirmBox('Remove this link', 'It is removed from the relationships and the map. Its history is kept.', 'Remove')) return;
+        await api('/api/links', {action: 'remove', edge_id: edgeId, by}); toast('Link removed'); dr.close(); onChange && onChange();
+      } catch (e) { fail(e); }
+    };
     $$('[data-act]', dr.body).forEach(b => b.onclick = async () => {
       try {
         const {by, note} = await decisionNote($('#rd-note'));
@@ -1179,9 +1403,11 @@ async function pageGraph() {
   p.innerHTML = `<div class="panel"><div class="row" style="margin-bottom:10px"><div class="legend" style="flex:1">
       <span><i style="border-color:var(--green)"></i>Approved</span><span><i style="border-color:var(--amber);border-top-style:dashed"></i>Waiting</span>
       <span><i style="border-color:#c5ccd6;border-top-style:dotted"></i>Rejected or revoked</span><span><i style="border-color:var(--red)"></i>Data changed</span></div>
-      <select id="g-show"><option value="approved">Approved links</option><option value="approved+pending">Approved and waiting</option><option value="all">Everything</option></select></div>
+      <select id="g-show"><option value="approved">Approved links</option><option value="approved+pending">Approved and waiting</option><option value="all">Everything</option></select>
+      ${S.state.demo ? '' : '<button class="btn sm" id="g-draw" aria-pressed="false" title="Drag from the table that refers to the table it points at">Draw a link</button>'}</div>
+    <div class="note-box small" id="g-drawhelp" hidden>Drawing: press on the table that <b>refers</b> (for example kyc_reviews) and drag to the table it <b>points at</b> (customers). A window then asks which columns link, and checks them on every row.</div>
     <div class="graph" id="g"><svg id="gsvg" role="img" aria-label="Tables and their relationships"></svg><div class="side-panel" id="g-side" hidden></div></div>
-    <p class="muted small" style="margin-top:8px">Drag to move the map, scroll to zoom, click a table or a link for details. Colours of the circles show the source.</p></div>
+    <p class="muted small" style="margin-top:8px">Drag to move the map, scroll to zoom, click a table or a link for details. Arrows point from the table that refers to the table it points at. Colours of the circles show the source.${S.state.demo ? '' : ' To link two tables yourself, press <b>Draw a link</b>.'}</p></div>
     <div class="panel"><div class="head"><h2>How do two tables connect?</h2></div>
       <p class="muted">Pick two tables to see the shortest chains of links between them, through approved and waiting relationships. Questions use approved links only.</p>
       <div class="row"><select id="pf-a" aria-label="From table" style="flex:1;min-width:200px"></select><span class="muted">to</span>
@@ -1213,7 +1439,8 @@ async function pageGraph() {
   function layout() {
     const vis = d.edges.filter(e => show === 'all' || e.status === 'approved' || (show === 'approved+pending' && (e.status === 'pending' || e.status === 'stale')));
     const used = new Set(); vis.forEach(e => { used.add(e.source); used.add(e.target); });
-    nodes = d.nodes.filter(n => used.has(n.id) || show === 'all').map(n => ({...n, x: 40 + Math.random() * (W - 80), y: 40 + Math.random() * (H - 80)}));
+    // With no links to show yet, every table is shown, so links can be drawn between them.
+    nodes = d.nodes.filter(n => used.has(n.id) || show === 'all' || drawing || !vis.length).map(n => ({...n, x: 40 + Math.random() * (W - 80), y: 40 + Math.random() * (H - 80)}));
     byId = Object.fromEntries(nodes.map(n => [n.id, n]));
     edges = vis.filter(e => byId[e.source] && byId[e.target] && e.source !== e.target);
     // Fruchterman-Reingold inside the frame, with gravity so separate groups stay close
@@ -1246,13 +1473,17 @@ async function pageGraph() {
     }
   }
   function render() {
-    svg.innerHTML = `<g transform="translate(${view.x},${view.y}) scale(${view.k})">${edges.map((e, i) => {
+    const r0 = 7 / Math.sqrt(view.k);
+    svg.innerHTML = `<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="context-stroke"/></marker></defs>
+      <g transform="translate(${view.x},${view.y}) scale(${view.k})">${edges.map((e, i) => {
       const a = byId[e.source], b = byId[e.target];
+      const len = Math.max(Math.hypot(b.x - a.x, b.y - a.y), 1), ex = b.x - (b.x - a.x) / len * (r0 + 2 / view.k), ey = b.y - (b.y - a.y) / len * (r0 + 2 / view.k);
       const dash = e.status === 'pending' ? '5 4' : (e.status === 'rejected' || e.status === 'revoked') ? '2 4' : '';
-      return `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${highlight.has(e.edge_id) ? 'var(--blue)' : (ecolor[e.status] || '#999')}" stroke-width="${(highlight.has(e.edge_id) ? 4.5 : 1.6) / view.k}" ${dash ? `stroke-dasharray="${dash}"` : ''} data-e="${i}" style="cursor:pointer"/>
+      return `<line x1="${a.x}" y1="${a.y}" x2="${ex}" y2="${ey}" marker-end="url(#arr)" stroke="${highlight.has(e.edge_id) ? 'var(--blue)' : (ecolor[e.status] || '#999')}" stroke-width="${(highlight.has(e.edge_id) ? 4.5 : 1.6) / view.k}" ${dash ? `stroke-dasharray="${dash}"` : ''} data-e="${i}" style="cursor:pointer"/>
         <line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="${10 / view.k}" data-e="${i}" style="cursor:pointer"/>`; }).join('')}
       ${nodes.map((n, i) => `<g data-n="${i}" style="cursor:pointer"><circle cx="${n.x}" cy="${n.y}" r="${7 / Math.sqrt(view.k)}" fill="${color(n)}" stroke="#fff" stroke-width="${1.5 / view.k}"/>
-        <text x="${n.x + 9 / view.k}" y="${n.y + 4 / view.k}" style="font-size:${11 / view.k}px">${esc(n.table)}</text></g>`).join('')}</g>`;
+        <text x="${n.x + 9 / view.k}" y="${n.y + 4 / view.k}" style="font-size:${11 / view.k}px">${esc(n.table)}</text></g>`).join('')}
+      ${rubber ? `<line x1="${rubber.a.x}" y1="${rubber.a.y}" x2="${rubber.x}" y2="${rubber.y}" stroke="var(--blue)" stroke-width="${2 / view.k}" stroke-dasharray="4 3" marker-end="url(#arr)" pointer-events="none"/>` : ''}</g>`;
     $$('[data-e]', svg).forEach(l => l.onclick = ev => { ev.stopPropagation(); sideEdge(edges[+l.dataset.e]); });
     $$('[data-n]', svg).forEach(g => g.onclick = ev => { ev.stopPropagation(); sideNode(nodes[+g.dataset.n]); });
   }
@@ -1271,15 +1502,43 @@ async function pageGraph() {
     side.hidden = false;
     side.innerHTML = `<div class="row"><h3 style="flex:1;margin:0">${esc(n.table)}</h3><button class="btn ghost sm" id="gs-x" aria-label="Close">✕</button></div>
       <p class="muted small" style="margin:4px 0 8px">${esc(n.source)}</p><p class="small">${links.length} link${links.length === 1 ? '' : 's'} shown</p>
-      <a class="btn sm" href="#explore/${encodeURIComponent(n.connection)}/${encodeURIComponent(n.table)}">Explore table</a>`;
+      <a class="btn sm" href="#explore/${encodeURIComponent(n.connection)}/${encodeURIComponent(n.table)}">Explore table</a>
+      ${S.state.demo ? '' : '<button class="btn sm" id="gs-link">Link it to a table…</button>'}`;
     $('#gs-x').onclick = () => side.hidden = true;
+    if ($('#gs-link')) $('#gs-link').onclick = () => linkModal({child: {connection: n.connection, table: n.table}}, () => route());
   }
   function draw() { layout(); render(); }
-  // pan and zoom
-  let drag = null;
-  svg.onmousedown = e => { drag = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; svg.style.cursor = 'grabbing'; };
-  window.onmouseup = () => { drag = null; svg.style.cursor = 'grab'; };
-  svg.onmousemove = e => { if (!drag) return; view.x = drag.vx + e.clientX - drag.x; view.y = drag.vy + e.clientY - drag.y; render(); };
+  // pan and zoom; in drawing mode, drag from one table to another to link them
+  let drag = null, drawing = false, rubber = null;
+  const toWorld = e => { const r = svg.getBoundingClientRect(); return {x: (e.clientX - r.left - view.x) / view.k, y: (e.clientY - r.top - view.y) / view.k}; };
+  const nodeAt = e => {
+    const g = e.target.closest && e.target.closest('[data-n]'); if (g) return nodes[+g.dataset.n];
+    const w = toWorld(e), r = 16 / view.k;      // the nearest table under the pointer, if any
+    let best = null, bd = r;
+    for (const n of nodes) { const dd = Math.hypot(n.x - w.x, n.y - w.y); if (dd < bd) { bd = dd; best = n; } }
+    return best;
+  };
+  if ($('#g-draw')) $('#g-draw').onclick = () => {
+    drawing = !drawing; $('#g-draw').classList.toggle('primary', drawing); $('#g-draw').setAttribute('aria-pressed', drawing);
+    $('#g-drawhelp').hidden = !drawing; svg.style.cursor = drawing ? 'crosshair' : 'grab'; draw();
+  };
+  svg.onmousedown = e => {
+    const n = drawing && nodeAt(e);
+    if (n) { e.preventDefault(); rubber = {a: n, ...toWorld(e)}; return; }
+    drag = {x: e.clientX, y: e.clientY, vx: view.x, vy: view.y}; svg.style.cursor = 'grabbing';
+  };
+  window.onmouseup = e => {
+    if (rubber) {
+      const from = rubber.a, to = nodeAt(e); rubber = null; render();
+      if (to && to.id !== from.id) linkModal({child: {connection: from.connection, table: from.table}, parent: {connection: to.connection, table: to.table}}, () => route());
+      return;
+    }
+    drag = null; svg.style.cursor = drawing ? 'crosshair' : 'grab';
+  };
+  svg.onmousemove = e => {
+    if (rubber) { Object.assign(rubber, toWorld(e)); render(); return; }
+    if (!drag) return; view.x = drag.vx + e.clientX - drag.x; view.y = drag.vy + e.clientY - drag.y; render();
+  };
   svg.onwheel = e => {
     e.preventDefault(); const r = svg.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
     const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; view.x = mx - (mx - view.x) * f; view.y = my - (my - view.y) * f; view.k *= f; render();
@@ -1287,6 +1546,131 @@ async function pageGraph() {
   draw();
 }
 
+
+/* ------------------------------------------------------------------ add a relationship yourself */
+const sing = w => w.replace(/ies$/, 'y').replace(/([^s])s$/, '$1');
+const ALIAS = {customer: ['cust', 'client', 'party'], account: ['acct', 'acc'], transaction: ['txn', 'trans'], product: ['prod'], merchant: ['merch']};
+const subjectOf = t => sing((t || '').toLowerCase().split(/[_\s]+/).filter(w => !['master', 'list', 'data', 'table', 'details', 'directory', 'dim', 'fact'].includes(w)).pop() || '');
+const keyish = c => /(^|_)(id|no|num|nbr|code|key|ref|number)$/i.test(c);
+function guessColumn(cols, side, table, otherTable, otherCol) {
+  const lc = cols.map(c => c.toLowerCase());
+  if (side === 'parent') {
+    // the parent's own key: customer_id in customers
+    const subj = subjectOf(table);
+    const own = cols.find(c => keyish(c) && c.toLowerCase().startsWith(subj)); if (own) return own;
+    if (otherCol) { const i = lc.indexOf(otherCol.toLowerCase()); if (i >= 0) return cols[i]; }
+    return cols.find(keyish) || cols[0];
+  }
+  // the child column that refers to the parent: same name, or a name that says the parent (cust_ref, card_acct)
+  if (otherCol) { const i = lc.indexOf(otherCol.toLowerCase()); if (i >= 0) return cols[i]; }
+  const subj = subjectOf(otherTable), words = [subj, ...(ALIAS[subj] || [])].filter(Boolean);
+  const own = subjectOf(table);
+  const named = cols.filter(c => words.some(w => c.toLowerCase().split(/[_\s]+/).some(x => sing(x) === w || x.startsWith(w))));
+  if (named.length) return named.find(keyish) || named[0];
+  return cols.find(c => keyish(c) && !c.toLowerCase().startsWith(own)) || cols.find(keyish) || cols[0];
+}
+async function linkModal(preset, onDone) {
+  try {
+    const tables = (await api('/api/tables')).items.filter(t => t.status !== 'not_profiled');
+    const colsOf = {};
+    const loadCols = async (cid, table) => {
+      const k = cid + '::' + table;
+      if (!colsOf[k]) colsOf[k] = (await api('/api/fixes?connection=' + encodeURIComponent(cid) + '&table=' + encodeURIComponent(table))).columns;
+      return colsOf[k];
+    };
+    const tOpts = sel => tables.map(t => `<option value="${esc(t.connection_id + '::' + t.table)}" ${sel === t.connection_id + '::' + t.table ? 'selected' : ''}>${esc(t.table)} (${esc(t.connection_name)})</option>`).join('');
+    const c0 = preset.child || {}, p0 = preset.parent || {};
+    const body = `<p class="muted small" style="margin-top:0">Link a column that refers to another table (the <b>child</b>, the many side) to the key it points at (the <b>parent</b>, the one side). Binggio checks it on every row of both tables before anything is saved.</p>
+      <div class="grid2"><div class="sidecard"><div class="k">Child: the column that refers</div><label class="f">Table<select id="lk-ct">${tOpts(c0.connection ? c0.connection + '::' + c0.table : '')}</select></label><label class="f">Column<select id="lk-cc"></select></label></div>
+      <div class="sidecard"><div class="k">Parent: the key it points at</div><label class="f">Table<select id="lk-pt">${tOpts(p0.connection ? p0.connection + '::' + p0.table : '')}</select></label><label class="f">Column<select id="lk-pc"></select></label></div></div>
+      <div class="row" style="margin:10px 0"><button class="btn sm primary" id="lk-check">Check on all rows</button><span class="muted small">Values are matched ignoring spaces and upper/lower case.</span></div>
+      <div id="lk-out"></div>
+      <div id="lk-decide" hidden><div class="fields"><label class="f">Kind of link<select id="lk-card">${Object.entries(CARD).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label></div>
+        <label class="f">What the link means, and how you know (required)<textarea id="lk-note" rows="2" maxlength="600" placeholder="e.g. every KYC review is about one customer; confirmed with the KYC team"></textarea></label>
+        <label class="small" id="lk-weakwrap" hidden><input type="checkbox" id="lk-weak"> I have checked the values that do not match and still want to approve it</label></div>`;
+    const done = modal('Add a relationship', body, [['Cancel', '', null], ['Add for review', '', null], ['Add and approve', 'good', null]]);
+    const bg = [...document.querySelectorAll('.modal-bg')].pop();
+    const [, addBtn, approveBtn] = $$('.mf button', bg);
+    addBtn.disabled = approveBtn.disabled = true;
+    let checked = null;
+    let childPicked = !!c0.column;
+    const tableOf = sel => { const [cid, ...rest] = $(sel, bg).value.split('::'); return {cid, table: rest.join('::')}; };
+    const fill = async (side, keepColumn) => {
+      const me = tableOf(side === 'child' ? '#lk-ct' : '#lk-pt'), other = tableOf(side === 'child' ? '#lk-pt' : '#lk-ct');
+      const cols = await loadCols(me.cid, me.table);
+      const otherSel = $(side === 'child' ? '#lk-pc' : '#lk-cc', bg);
+      const want = keepColumn || guessColumn(cols, side, me.table, other.table, otherSel && otherSel.value);
+      $(side === 'child' ? '#lk-cc' : '#lk-pc', bg).innerHTML = cols.map(c => `<option ${c === want ? 'selected' : ''}>${esc(c)}</option>`).join('');
+      checked = null; addBtn.disabled = approveBtn.disabled = true; $('#lk-decide', bg).hidden = true; $('#lk-out', bg).innerHTML = '';
+    };
+    const sideOf = (t, c) => { const [cid, ...rest] = $(t, bg).value.split('::'); return {connection: cid, table: rest.join('::'), column: $(c, bg).value}; };
+    $('#lk-ct', bg).onchange = () => { childPicked = false; fill('child').catch(fail); };
+    $('#lk-pt', bg).onchange = async () => { try { await fill('parent'); if (!childPicked) await fill('child'); } catch (e) { fail(e); } };
+    const reset = () => { checked = null; addBtn.disabled = approveBtn.disabled = true; $('#lk-decide', bg).hidden = true; };
+    $('#lk-cc', bg).onchange = () => { childPicked = true; reset(); };
+    $('#lk-pc', bg).onchange = reset;
+    await fill('parent', p0.column); await fill('child', c0.column);
+    $('#lk-check', bg).onclick = async () => {
+      const out = $('#lk-out', bg); out.innerHTML = '<div class="empty">Checking every row of both tables…</div>';
+      try {
+        const r = await api('/api/links/check', {child: sideOf('#lk-ct', '#lk-cc'), parent: sideOf('#lk-pt', '#lk-pc')});
+        checked = r;
+        out.innerHTML = `<div class="kpis">${kpi(pct(r.coverage_pct), 'child values found in the parent')}${kpi(pct(r.row_coverage_pct), 'child rows that find a parent')}
+            ${kpi(r.parent_unique ? 'Yes' : 'No', 'parent key unique, never empty')}${kpi(esc(r.strength), 'strength')}</div>
+          ${r.warnings.length ? `<div class="warn-box small">${r.warnings.map(esc).join('<br>')}</div>` : '<div class="note-box small">Every child value is found, and the parent key is unique.</div>'}
+          <div class="grid2 small"><div><span class="muted">Child values, e.g.</span> ${vals(r.child.examples)}${r.unmatched_examples.length ? `<span class="muted">Not found in the parent:</span> ${vals(r.unmatched_examples)}` : ''}</div>
+          <div><span class="muted">Parent values, e.g.</span> ${vals(r.parent.examples)}${(r.parent.repeats || []).length ? `<span class="muted">Repeated in the parent:</span> ${vals(r.parent.repeats.map(x => x.value + ' (' + x.rows + ')'))}` : ''}</div></div>`;
+        $('#lk-card', bg).value = r.suggested_cardinality; $('#lk-decide', bg).hidden = false;
+        $('#lk-weakwrap', bg).hidden = r.coverage_pct >= 45;
+        addBtn.disabled = r.matched_distinct === 0; approveBtn.disabled = r.matched_distinct === 0;
+      } catch (e) { out.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+    };
+    const submit = async approve => {
+      try {
+        const by = await needReviewer();
+        const note = $('#lk-note', bg).value.trim();
+        if (!note) { $('#lk-note', bg).focus(); throw new Error('Say what the link means and how you know'); }
+        if (approve && checked && checked.coverage_pct < 45 && !$('#lk-weak', bg).checked) throw new Error('Few child values match. Tick the box to confirm you checked them, or add it for review instead.');
+        addBtn.disabled = approveBtn.disabled = true;
+        const r = await api('/api/links', {action: 'add', child: sideOf('#lk-ct', '#lk-cc'), parent: sideOf('#lk-pt', '#lk-pc'), by, note, approve,
+          cardinality: $('#lk-card', bg).value, confirm_weak: $('#lk-weak', bg).checked});
+        bg._close(r);
+      } catch (e) { addBtn.disabled = approveBtn.disabled = !checked; fail(e); }
+    };
+    addBtn.onclick = () => submit(false); approveBtn.onclick = () => submit(true);
+    const r = await done;
+    if (!r) return;
+    if (r.approve_error) modal('Added, not approved', `<div class="warn-box">${esc(r.approve_error)}</div><p class="muted">The link is waiting in Review › Relationships.</p>`, [['Close', 'primary', null]]);
+    else toast(r.approved ? 'Relationship added and approved' : r.already_proposed ? 'Binggio had already proposed this link; it is waiting for review' : 'Relationship added for review');
+    S.overview = null; refreshBadges(); onDone && onDone(r);
+  } catch (e) { fail(e); }
+}
+
+/* ------------------------------------------------------------------ why links were not found */
+async function discoveryReport(el, open) {
+  const d = await api('/api/discovery/report');
+  if (!el.isConnected) return;
+  if (!d.ran) { el.innerHTML = `<div class="note-box">${esc(d.message)}</div>`; return; }
+  const s = d.summary, rules = d.rules || {};
+  const why = t => t.why ? esc(t.why) : (t.parent_keys.length ? `Key: ${esc(t.parent_keys.join(', '))}` : 'No column qualified as this table\'s key') +
+    (t.not_parent_keys || []).map(n => `<div class="faint">${esc(n.column)}: ${esc(n.why)}</div>`).join('');
+  const add = (child, parent) => `<button class="btn ghost sm" data-addlink="${esc(JSON.stringify({child, parent}))}">Add this link…</button>`;
+  el.innerHTML = `<details ${open ? 'open' : ''}><summary><b>What discovery tried</b> <span class="muted small">· ${s.checked} of ${s.tables} tables compared · ${s.linked_tables} linked · ${s.columns_without_link} key-like column${s.columns_without_link === 1 ? '' : 's'} without a link${s.format_hints ? ` · ${s.format_hints} possible format mismatch${s.format_hints === 1 ? '' : 'es'}` : ''}${s.near_misses ? ` · ${s.near_misses} near miss${s.near_misses === 1 ? '' : 'es'}` : ''} · ${esc(String(d.generated_at).slice(0, 16).replace('T', ' '))}</span></summary>
+    <p class="muted small" style="margin:8px 0">The rules: at least ${rules.min_coverage_pct}% of a column's values must be found in the other table's key (${rules.min_coverage_names_differ_pct}% when the names do not match), the key must be unique and never empty, and the evidence score must reach ${rules.min_score}. Up to ${fmt(rules.rows_read_per_table)} rows of each referring table are read; keys of bigger tables are checked on all their rows. Nothing below is approved: these are the attempts, so you can see where each one stopped.</p>
+    ${d.columns.length ? `<h3 style="margin-top:12px">Key-like columns with no link</h3><div class="scroll" style="max-height:48vh"><table class="t small"><tr><th>Column</th><th>Closest match</th><th>Why it was not proposed</th><th></th></tr>
+      ${d.columns.map(c => { const b = c.best, h = c.format_hint, nm = (c.near_misses || [])[0];
+        const target = h || b || nm;
+        return `<tr><td><b>${esc(c.table)}.${esc(c.column)}</b><div class="faint">${esc(c.source)}</div></td>
+          <td>${b ? `${esc(b.table)}.${esc(b.column)} <span class="muted">· ${b.coverage_pct}% found</span>` : '<span class="muted">No key in any table shares these values</span>'}</td>
+          <td>${b ? esc(b.why) : `Compared with ${c.parents_compared} key${c.parents_compared === 1 ? '' : 's'}.`}
+            ${nm ? `<div class="warn-box small" style="margin:6px 0 0">Near miss: ${esc(nm.table)}.${esc(nm.column)} holds about ${nm.coverage_pct}% of these values, but ${esc(nm.why)}. <a href="#explore/${encodeURIComponent(nm.connection_id)}/${encodeURIComponent(nm.table)}">Key tools</a></div>` : ''}
+            ${h ? `<div class="note-box small" style="margin:6px 0 0">${esc(h.advice)} <a href="#explore/${encodeURIComponent(c.connection_id)}/${encodeURIComponent(c.table)}">Data fixes</a></div>` : ''}</td>
+          <td>${S.state.demo ? '' : add({connection: c.connection_id, table: c.table, column: c.column}, target ? {connection: target.connection_id, table: target.table, column: target.column} : {})}</td></tr>`; }).join('')}</table></div>` : '<p class="muted">Every key-like column was linked or skipped by the rules above.</p>'}
+    <h3 style="margin-top:14px">Tables</h3><div class="scroll" style="max-height:40vh"><table class="t small"><tr><th>Table</th><th class="num">Rows read</th><th>Linked</th><th>Its key, and columns that could not be one</th></tr>
+      ${d.tables.map(t => `<tr><td><b>${esc(t.table)}</b><div class="faint">${esc(t.source)}</div></td><td class="num">${t.status === 'checked' ? fmt(t.rows_read) + (t.rows > t.rows_read ? ` of ${fmt(t.rows)}` : '') : '–'}</td>
+        <td>${t.status !== 'checked' ? pill('not_profiled') : t.linked ? '<span class="pill s-approved">yes</span>' : '<span class="pill s-pending">no</span>'}</td><td>${why(t)}</td></tr>`).join('')}</table></div></details>`;
+  $$('[data-addlink]', el).forEach(b => b.onclick = () => linkModal(JSON.parse(b.dataset.addlink), () => route()));
+}
 
 /* ================================================================== data story */
 const KIND_LABEL = {driver: 'What drives it', concentration: 'Concentration', trend: 'Over time', gap: 'Worth checking'};
@@ -1313,9 +1697,13 @@ async function pageStory(cid, table) {
   if (!cid) cid = [...srcs].sort((a, b) => a.created_at < b.created_at ? 1 : -1)[0].id;
   p.innerHTML = `<div class="row" style="margin-bottom:14px"><select id="st-src" aria-label="Source">${srcs.map(s => `<option value="${esc(s.id)}" ${s.id === cid ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
     <select id="st-table" aria-label="Table" hidden></select>
-    <span class="muted small" id="st-note">${table ? 'The facts about this table, from approved measures and categories only.' : 'The facts that matter most across this source, from approved measures and categories only.'}</span></div><div id="st"><div class="empty">Testing every approved measure against every approved category…</div></div>`;
+    <span class="muted small" id="st-note">${table ? 'The facts about this table, from approved measures and categories only.' : 'The facts that matter most across this source, from approved measures and categories only.'}</span></div><div id="st"><div class="empty">Testing every approved measure against every approved category… <span id="st-secs"></span><div class="faint small">Large sources take up to a minute the first time; after that the story opens at once until the data or a decision changes.</div></div></div>`;
+  const t0 = Date.now(), timer = setInterval(() => { const el = $('#st-secs'); if (!el) return clearInterval(timer); el.textContent = Math.round((Date.now() - t0) / 1000) + ' s'; }, 1000);
   $('#st-src').onchange = e => location.hash = '#story/' + encodeURIComponent(e.target.value);
-  const d = await api('/api/story?connection=' + encodeURIComponent(cid) + (table ? '&table=' + encodeURIComponent(table) : ''));
+  let d;
+  try { d = await api('/api/story?connection=' + encodeURIComponent(cid) + (table ? '&table=' + encodeURIComponent(table) : '')); }
+  finally { clearInterval(timer); }
+  if (!$('#st')) return;
   if ((d.tables || []).length > 1) {
     const sel = $('#st-table'); sel.hidden = false;
     sel.innerHTML = `<option value="">All tables: strongest facts</option>${d.tables.map(t => `<option value="${esc(t)}" ${t === table ? 'selected' : ''}>${esc(t)}</option>`).join('')}`;
@@ -1329,7 +1717,7 @@ async function pageStory(cid, table) {
       ${f.chart ? (f.chart.type === 'line' ? lineChart(f.chart) : barsChart(f.chart)) : ''}
       <p class="why" style="margin:0">${esc(f.detail)}</p>
       <span class="from">From ${f.tables.map((t, i) => i === 0 && t !== table && (d.tables || []).includes(t) ? `<a href="#story/${encodeURIComponent(cid)}/${encodeURIComponent(t)}" title="Facts about this table">${esc(t)}</a>` : esc(t)).join(' → ')}</span></article>`).join('')}</div>
-    <div class="panel" style="margin-top:16px"><div class="row"><span class="muted small" style="flex:1">Tested ${d.considered.pairs_tested} measure and category pairs across ${d.considered.measures} approved measures; ${d.considered.facts_found} candidate facts, the strongest shown. Differences describe the data; they do not say why.</span></div>
+    <div class="panel" style="margin-top:16px"><div class="row"><span class="muted small" style="flex:1">Tested ${d.considered.pairs_tested} measure and category pairs across ${d.considered.measures} approved measures; ${d.considered.facts_found} candidate facts, the strongest shown.${d.considered.skipped_for_time ? ` ${d.considered.skipped_for_time} measure(s) were not tested within the time limit: choose one table above to see its facts.` : ''} Differences describe the data; they do not say why.</span></div>
     ${d.asks.length ? `<h3 style="margin-top:12px">Ask next</h3>${d.asks.map(q => `<button class="btn sm" data-ask="${esc(q)}" style="margin:0 6px 6px 0">${esc(q)}</button>`).join('')}` : ''}</div>`;
   $$('[data-ask]').forEach(b => b.onclick = () => { store.set('prefill', b.dataset.ask); location.hash = '#ask'; });
 }

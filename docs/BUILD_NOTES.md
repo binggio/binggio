@@ -15,6 +15,22 @@ modified). Eight parts.
 | 7. The app | `binggio ui`: start screen, data sources (CSV, Excel, SQLite, SQL Server, Oracle, PostgreSQL), explore, onboarding, review (roles, relationships, concepts, terms: approve / reject / revoke / reopen, bulk), relationship map, ask with provenance, activity, settings. Standard library server on 127.0.0.1 with a session token and host check; secrets in memory only | `test_ui` (token and host checks, overview, 10 sample questions match the verified answers, full new-user flow); simulator journey `web app` (installed command, API, and all 11 screens in a browser when Playwright is present) |
 | 8. Speed | Within one status, review or answer call each table's profile and freshness are worked out once (`evaluation_scope`); nothing is reused across calls | demo `status`: 8.4 s -> 0.7 s, identical results |
 
+## 0.1.4 (6 Nov 2026)
+
+Measured on a 100-table workspace with 10 million rows (372 MB of CSV), standard library only:
+
+| What | 0.1.3 | 0.1.4 |
+| --- | --- | --- |
+| Profile 100 tables | 88 s (date detection tried six formats on every value) | 4 s |
+| Find relationships | 125 s, 2,333 candidates (counters such as row_id linked to each other) and none of the 96 real account links (parent keys read on the first 200,000 rows only) | 24 s to prepare the tables once, then 30 s; 98 candidates, all real |
+| Sum of 3,000,000 transactions by channel | refused (over 1,000,000 rows) | 24 s the first time, 2 s after |
+| Same, grouped through a join to 600,000 accounts | refused | 11 s |
+| Data story for the source | minutes; dimensions of linked tables from partial lookups | 10 s, then instant until data or decisions change |
+
+New: data fixes (`prepared.py`), whole-table key checks, links a person adds (`links.py`), what
+discovery tried (`graph.attempts`), answer cache (`engine/answer_cache.py`), navigation guard in
+the app (late replies never write into the next page). Tests: `test_steward_tools`.
+
 ## Before publishing
 
 - [ ] Run the UAT agent (`python uat\run_uat.py --with-model --sqlserver "host=localhost;database=master;windows"`),

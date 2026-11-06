@@ -65,6 +65,18 @@ Built for data stewards:
   links between any two tables, and whether questions can use them yet.
 - **Shortcuts:** a "strong evidence only" filter for bulk approval, and a CSV export of the
   whole audit trail.
+- **Add a relationship yourself.** In Review › Relationships, or by drawing an arrow between two
+  tables on the relationship map. Binggio checks it on every row of both tables (how many keys
+  match, whether the parent key is unique) before it is saved, and a person approves it.
+- **See where discovery stopped.** For every table and key-like column: the closest match, why it
+  was not proposed (too few values matched, the key repeats, the names differ), near misses, and
+  keys that look the same but are written differently (`CUST-000123` and `C0000123`).
+- **Data fixes, without touching the source.** Trim spaces, read `$1,234.50` as a number, fill
+  missing values, pad or strip key prefixes, read dates in a stated form, combine columns into a
+  new key, keep one row per key. Each fix is recorded with who added it and why, and is applied
+  again whenever the data is refreshed. Approvals on a fixed table must be re-confirmed.
+- **Key tools.** Check a column, or several together, on every row (not a sample): how many rows
+  repeat or are empty, with examples. Make it the table's key only when it is unique.
 
 It runs on this computer only (127.0.0.1), needs no internet, and adds no dependencies. The page
 carries a random session token so other web sites cannot use it. Database passwords and model keys
@@ -155,8 +167,10 @@ weak alternative links for you to look at.
 
 - **Guess a meaning.** A word with no approved meaning, or two approved meanings, is refused with
   the choices.
-- **Answer from part of the data.** Answers read whole tables (up to 1,000,000 rows per table in
-  this version). Longer result lists show the first 200 rows and say how many there are.
+- **Answer from part of the data.** Answers read whole tables. Large tables are prepared once
+  (a local copy in the workspace's `data/prepared` and `data/cache` folders, about the size of
+  the data, safe to delete) so later questions do not re-read the files. Longer result lists show
+  the first 200 rows and say how many there are.
 - **Change your data.** Databases are read with SELECT statements only; the copy lives in the
   workspace, and `binggio refresh <connection>` re-reads it in place.
 

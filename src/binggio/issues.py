@@ -18,7 +18,7 @@ from pathlib import Path
 _LOCK = threading.RLock()
 STATUSES = ('open', 'resolved', 'dismissed')
 # Refusals that say nothing about meaning (no model key, network down) are not issues.
-NOT_SEMANTIC = re.compile(r'unavailable|api key|model key|network|timed out|timeout|rate limit', re.I)
+NOT_SEMANTIC = re.compile(r'unavailable|api key|model key|network|timed out|timeout|rate limit|more than [0-9,]+ rows|re-profile', re.I)
 
 
 def _now():

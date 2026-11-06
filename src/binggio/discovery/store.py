@@ -34,6 +34,11 @@ def _db(project: Path):
         id TEXT PRIMARY KEY,child_connection_id TEXT NOT NULL,child_table TEXT NOT NULL,
         parent_connection_id TEXT NOT NULL,parent_table TEXT NOT NULL,
         score REAL NOT NULL,payload_json TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS attempts (
+        id INTEGER PRIMARY KEY CHECK(id=1), generated_at TEXT NOT NULL, report_json TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS manual_edges (
+        id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, added_by TEXT NOT NULL, added_at TEXT NOT NULL,
+        note TEXT NOT NULL, status TEXT NOT NULL, removed_by TEXT, removed_at TEXT)''')
     db.commit()
     return db
 
@@ -128,6 +133,14 @@ def run_all(project: Path) -> dict:
         if eid in protected and eid not in present and (old['child_connection_id'],old['child_table']) in tables \
                 and (old['parent_connection_id'],old['parent_table']) in tables:
             graph['edges'].append(old)
+    # Links a person added keep their place on every run (both tables must still be registered).
+    present={e['id'] for e in graph['edges']}
+    for m in _manual(project):
+        if (m['child_connection_id'],m['child_table']) not in tables or (m['parent_connection_id'],m['parent_table']) not in tables:continue
+        if m['id'] in present:
+            e=next(x for x in graph['edges'] if x['id']==m['id'])
+            e.setdefault('evidence',{})['added_by']=m['evidence'].get('added_by')
+        else:graph['edges'].append(m)
     graph['edges'].sort(key=lambda x:(-x['score'],x['child_table'],x['child_column'],x['parent_table']))
     summ={'version':graph['version'],'generated_at':graph['generated_at'],
           'node_count':len(graph['nodes']),'candidate_edges':len(graph['edges']),
@@ -139,6 +152,7 @@ def run_all(project: Path) -> dict:
         db.execute('DELETE FROM nodes')
         db.executemany('INSERT INTO nodes VALUES (?,?,?,?)',[(x['id'],x['connection_id'],x['table'],json.dumps(x,sort_keys=True)) for x in graph['nodes']])
         db.executemany('INSERT INTO edges VALUES (?,?,?,?,?,?,?)',[(x['id'],x['child_connection_id'],x['child_table'],x['parent_connection_id'],x['parent_table'],x['score'],json.dumps(x,sort_keys=True)) for x in graph['edges']])
+        db.execute('INSERT OR REPLACE INTO attempts VALUES (1,?,?)',(graph['generated_at'],json.dumps(graph.get('attempts') or {})))
         db.execute('''INSERT INTO snapshot(id,version,generated_at,summary_json) VALUES(1,?,?,?)
             ON CONFLICT(id) DO UPDATE SET version=excluded.version,generated_at=excluded.generated_at,summary_json=excluded.summary_json''',
             (VERSION,graph['generated_at'],json.dumps(summ)))
@@ -259,3 +273,59 @@ def find_paths(project: Path, *, source: str,target: str,max_hops: int=3,max_pat
     return {'source':source,'target':target,'paths':paths,
       'max_hops':max_hops,'max_paths':max_paths,
       'disclaimer':'Exploratory paths through unverified candidate edges only. Not approved joins or safe SQL routes.'}
+
+
+def attempts(project: Path) -> dict | None:
+    """What the last discovery run tried, table by table and column by column, and why links were
+    not proposed (the steward's view when nothing, or too little, was found)."""
+    with _LOCK,_db(project) as db:
+        r=db.execute('SELECT generated_at,report_json FROM attempts WHERE id=1').fetchone()
+    if not r:return None
+    return {'generated_at':r['generated_at'],**json.loads(r['report_json'])}
+
+
+def _manual(project):
+    with _LOCK,_db(project) as db:
+        return [json.loads(r[0]) for r in db.execute("SELECT payload_json FROM manual_edges WHERE status='active'")]
+
+
+def manual_ids(project):
+    with _LOCK,_db(project) as db:
+        return {r[0] for r in db.execute("SELECT id FROM manual_edges WHERE status='active'")}
+
+
+def edge_id(child_cid,child_table,child_column,parent_cid,parent_table,parent_column):
+    import hashlib
+    canonical='|'.join([child_cid,child_table,child_column,parent_cid,parent_table,parent_column])
+    return 'rel_'+hashlib.sha256(canonical.encode('utf-8')).hexdigest()[:20]
+
+
+def add_manual_edge(project: Path, edge: dict, actor: str, note: str) -> dict:
+    """Store a link a person drew (Relationships tab or the map). It joins the candidate graph at
+    once and on every later discovery run; it is approved, like any candidate, by a person."""
+    from datetime import datetime, timezone
+    now=datetime.now(timezone.utc).isoformat(timespec='seconds')
+    with _LOCK,_db(project) as db:
+        db.execute('BEGIN IMMEDIATE')
+        existing=db.execute('SELECT payload_json FROM edges WHERE id=?',(edge['id'],)).fetchone()
+        if existing and not json.loads(existing[0]).get('evidence',{}).get('manual'):
+            db.commit()
+            return {**json.loads(existing[0]),'already_proposed':True}
+        db.execute('INSERT OR REPLACE INTO manual_edges VALUES (?,?,?,?,?,?,?,?)',(edge['id'],json.dumps(edge,sort_keys=True),actor,now,note,'active',None,None))
+        db.execute('INSERT OR REPLACE INTO edges VALUES (?,?,?,?,?,?,?)',(edge['id'],edge['child_connection_id'],edge['child_table'],
+                   edge['parent_connection_id'],edge['parent_table'],edge['score'],json.dumps(edge,sort_keys=True)))
+        db.commit()
+    return edge
+
+
+def remove_manual_edge(project: Path, eid: str, actor: str) -> None:
+    from datetime import datetime, timezone
+    with _LOCK,_db(project) as db:
+        row=db.execute("SELECT payload_json FROM manual_edges WHERE id=? AND status='active'",(eid,)).fetchone()
+        if not row:raise ConnectionErrorSafe('This is not a link a person added')
+        db.execute("UPDATE manual_edges SET status='removed', removed_by=?, removed_at=? WHERE id=?",
+                   (actor,datetime.now(timezone.utc).isoformat(timespec='seconds'),eid))
+        cur=db.execute('SELECT payload_json FROM edges WHERE id=?',(eid,)).fetchone()
+        if cur and json.loads(cur[0]).get('evidence',{}).get('manual'):
+            db.execute('DELETE FROM edges WHERE id=?',(eid,))
+        db.commit()

@@ -237,17 +237,19 @@ def api(app: App, method, path, q, body):
         def run(step):
             step(0); r = ws.refresh(cid, password=pw)
             step(1); ws.profile()
-            step(2); ws.discover()
+            step(2); _prepare(ws, step, 2)
+            step(3); ws.discover()
             return r
-        return app.start_job('refresh', ['Reading the source again', 'Profiling', 'Finding relationships'], run)
+        return app.start_job('refresh', ['Reading the source again', 'Profiling (your data fixes are applied again)', 'Preparing tables for fast reading', 'Finding relationships'], run)
     if path == '/api/sources/test' and method == 'POST':
         return _test_database(body)
     if path == '/api/pipeline' and method == 'POST':
         def run(step):
             step(0); p = ws.profile(force=bool(body.get('force')))
-            step(1); d = ws.discover()
+            step(1); _prepare(ws, step, 1)
+            step(2); d = ws.discover()
             return {'profile': {k: p[k] for k in ('total', 'profiled_or_cached') if k in p}, 'failures': p.get('failures'), 'discover': d}
-        return app.start_job('pipeline', ['Profiling', 'Finding relationships'], run)
+        return app.start_job('pipeline', ['Profiling', 'Preparing tables for fast reading', 'Finding relationships'], run)
 
     if path == '/api/tables':
         from binggio.profiling import store as profiles
@@ -345,11 +347,36 @@ def api(app: App, method, path, q, body):
     if path == '/api/history':
         return store.events(root, artifact_id=q.get('artifact') or None, limit=int(q.get('limit') or 200))
 
+    if path == '/api/fixes' and method == 'GET':
+        return _fixes_info(root, q['connection'], q['table'])
+    if path == '/api/fixes/preview' and method == 'POST':
+        from binggio import prepared
+        try: return prepared.preview_fix(root, _conn(root, body['connection']), body['table'], body.get('kind'), body.get('column'), body.get('params') or {})
+        except prepared.FixError as e: raise ApiError(str(e))
+    if path == '/api/fixes' and method == 'POST':
+        ws._no_data_changes()
+        return _fix_action(app, ws, body)
+    if path == '/api/keys' and method == 'GET':
+        from binggio import prepared
+        cols = [c for c in (q.get('columns') or '').split(',') if c]
+        try: return prepared.key_check(root, _conn(root, q['connection']), q['table'], cols)
+        except prepared.FixError as e: raise ApiError(str(e))
+    if path == '/api/keys/make' and method == 'POST':
+        return _make_key(root, body)
+    if path == '/api/discovery/report' and method == 'GET':
+        return _discovery_report(root)
+    if path == '/api/links/check' and method == 'POST':
+        from binggio import links
+        try: return links.check(root, _side(body['child']), _side(body['parent']))
+        except links.LinkError as e: raise ApiError(str(e))
+    if path == '/api/links' and method == 'POST':
+        return _link_action(root, body)
+
     if path == '/api/story':
         from binggio import story
         cid = q.get('connection') or (sorted(ws.connections(), key=lambda c: c['created_at'])[-1]['id'] if ws.connections() else None)
         if not cid: raise ApiError('Add a source first')
-        return story.build(root, cid, table=q.get('table') or None)
+        return _story_cached(root, cid, q.get('table') or None)
     if path == '/api/graph':
         return _graph(root)
 
@@ -371,6 +398,24 @@ def api(app: App, method, path, q, body):
         return {'items': _demo_samples(ws)}
 
     raise ApiError('Not found: %s %s' % (method, path), 404)
+
+
+_STORY_CACHE = {}
+
+
+def _story_cached(root, cid, table):
+    """The data story reads up to 100,000 rows per table; reuse it until a decision is made or a
+    source table changes (its fingerprint), so revisiting the page is instant."""
+    from binggio import story
+    from binggio.registry import store
+    from binggio.profiling import store as profiles
+    last = (store.events(root, limit=1)['items'] or [{}])[0].get('id')
+    prints = tuple(sorted((p['table'], str(p.get('profiled_at')), bool(p.get('stale'))) for p in profiles.list_profiles(root, connection_id=cid)))
+    key = (str(root), cid, table, last, prints)
+    if key not in _STORY_CACHE:
+        if len(_STORY_CACHE) > 50: _STORY_CACHE.clear()
+        _STORY_CACHE[key] = story.build(root, cid, table=table)
+    return _STORY_CACHE[key]
 
 
 def _open_issues(root):
@@ -462,11 +507,17 @@ def _add_source(app, ws, b):
     def run(step):
         step(0); c = add()
         step(1); p = ws.profile()
-        step(2); d = ws.discover()
+        step(2); _prepare(ws, step, 2)
+        step(3); d = ws.discover()
         return {'connection': c['id'], 'tables': c.get('table_count'), 'notes': c.get('notes', []),
                 'profile_failures': p.get('failures'), 'candidate_relationships': d.get('candidate_edges'),
                 'skipped_tables': d.get('skipped_tables', [])}
-    return app.start_job('add', ['Copying the data in', 'Profiling every column', 'Finding relationships'], run)
+    return app.start_job('add', ['Copying the data in', 'Profiling every column', 'Preparing tables for fast reading', 'Finding relationships'], run)
+
+
+def _prepare(ws, step, i):
+    from binggio import prepared
+    return prepared.prepare_all(ws.root, progress=lambda k, n, t: step(i, 'running', '%d of %d: %s' % (k + 1, n, t)))
 
 
 def _test_database(b):
@@ -491,8 +542,18 @@ def _table_detail(root, cid, table):
     from binggio.discovery import store as graph
     prof = profiles.get_table(root, cid, table)
     roles = {r['column']: r for r in _all_roles(root, connection_id=cid, table=table)}
-    try: preview = catalog.table_detail(root, cid, table, preview=10)
+    try: preview = catalog.table_detail(root, cid, table, preview=0)
     except Exception: preview = {}
+    try:
+        from binggio import prepared
+        conn = _conn(root, cid)
+        h, rows, meta = prepared.read(root, conn, table, 10)
+        preview = {**preview, 'columns': [{'name': x} for x in h],
+                   'preview': [['' if v is None else str(v) for v in r] for r in rows]}
+        if prepared.is_ready(root, conn, table): preview['row_count'] = prepared.row_count(root, conn, table)
+        fixes = prepared.fixes_for(root, cid, table)
+    except Exception:
+        fixes = []
     cols = []
     for c in (prof or {}).get('columns', []):
         r = roles.get(c['name'], {})
@@ -507,7 +568,7 @@ def _table_detail(root, cid, table):
     return {'connection': cid, 'table': table, 'profiled': bool(prof), 'stale': (prof or {}).get('stale'),
             'sample_rows': (prof or {}).get('sample_rows'), 'sample_complete': (prof or {}).get('sample_complete'),
             'findings': (prof or {}).get('table_findings'), 'columns': cols,
-            'preview': _preview(preview),
+            'preview': _preview(preview), 'fixes': [{'id': f['id'], 'label': f['label'], 'kind': f['kind'], 'column': f['column']} for f in fixes],
             'links': links}
 
 
@@ -835,14 +896,15 @@ def _col_summary(root, cid, table, column):
 
 
 def _sample_values(root, cid, table, column, n=8):
-    from binggio.catalog import catalog
+    from binggio import prepared
     try:
-        meta = catalog.table_detail(root, cid, table, preview=60)
+        h, rows, _ = prepared.read(root, _conn(root, cid), table, 200)
+        i = h.index(column)
     except Exception:
         return []
     seen = []
-    for r in meta.get('preview') or []:
-        v = r.get(column) if isinstance(r, dict) else None
+    for r in rows:
+        v = r[i]
         if v not in (None, '') and v not in seen:
             seen.append(v)
         if len(seen) >= n: break
@@ -877,7 +939,10 @@ def _rel_detail(root, eid):
                          'child_keys': ev.get('child_distinct_sampled'), 'parent_keys': ev.get('parent_distinct_sampled'),
                          'parent_unique_pct': ev.get('parent_uniqueness_pct'), 'child_missing': ev.get('child_missing_sampled'),
                          'parent_missing': ev.get('parent_missing_sampled'), 'same_family': ev.get('lexical_family_match'),
-                         'reasons': _plain(ev.get('reasons')), 'limitations': _plain(ev.get('limitations'))},
+                         'reasons': _plain(ev.get('reasons')), 'limitations': _plain(ev.get('limitations')),
+                         'manual': bool(ev.get('manual')), 'added_by': ev.get('added_by'), 'added_at': ev.get('added_at'), 'added_note': ev.get('note'),
+                         'warnings': ev.get('warnings') or [], 'whole_table': bool(ev.get('whole_table') or ev.get('parent_checked_all_rows')),
+                         'row_coverage_pct': ev.get('row_coverage_pct')},
             'prerequisites_met': child['role_status'] == 'approved' and parent['role_status'] == 'approved',
             'risks': RELATIONSHIP_RISKS, 'history': hist}
 
@@ -1002,3 +1067,136 @@ def _paths(root, a, b, max_hops=4, limit=5):
     out = [{'hops': len(p), 'all_approved': all(s['status'] == 'approved' for s in p), 'steps': p} for p in paths[:limit]]
     out.sort(key=lambda x: (not x['all_approved'], x['hops']))
     return {'from': a, 'to': b, 'paths': out}
+
+
+# ====================================================================== 0.1.4: fixes, keys, links, discovery report
+
+def _conn(root, cid):
+    from binggio.catalog import catalog
+    c = next((x for x in catalog.list_connections(root) if x['id'] == cid), None)
+    if c is None: raise ApiError('Unknown source', 404)
+    return c
+
+
+def _side(x):
+    if not isinstance(x, dict) or not all(x.get(k) for k in ('connection', 'table', 'column')):
+        raise ApiError('Choose the table and column on both sides')
+    return (x['connection'], x['table'], x['column'])
+
+
+def _fixes_info(root, cid, table):
+    from binggio import prepared
+    conn = _conn(root, cid)
+    history = prepared.list_fixes(root, cid, table, include_removed=True)
+    try: header = prepared.header_with_fixes(root, conn, table)
+    except Exception as e: raise ApiError(str(e))
+    info = None
+    if prepared.is_ready(root, conn, table):
+        try:
+            i = prepared.info(root, conn, table)
+            info = {'rows': i['rows'], 'built_at': i['built_at'], 'notes': {n['fix']: n for n in i.get('fix_notes') or []}}
+        except Exception:
+            info = None
+    return {'connection': cid, 'table': table, 'columns': header, 'active': [f for f in history if f['status'] == 'active'],
+            'removed': [f for f in history if f['status'] != 'active'], 'kinds': prepared.KINDS, 'date_formats': list(prepared.DATE_INPUTS),
+            'prepared': info}
+
+
+def _fix_action(app, ws, b):
+    from binggio import prepared
+    from binggio.profiling import store as profiles
+    root = ws.root
+    conn = _conn(root, b['connection']); table = b['table']
+    try:
+        if b.get('action') == 'remove':
+            f = prepared.remove_fix(root, b['id'], _by(b), b.get('note'))
+        else:
+            f = prepared.add_fix(root, conn, table, b.get('kind'), b.get('column'), b.get('params') or {}, _by(b), b.get('note'))
+    except prepared.FixError as e:
+        raise ApiError(str(e))
+
+    def run(step):
+        step(0); prepared.ensure(root, conn, table)
+        step(1); profiles.run_table(root, conn['id'], table, force=True)
+        step(2)
+        try: d = ws.discover(); found = d.get('candidate_edges')
+        except Exception as e: found = None; step(2, 'failed', str(e)[:160])
+        return {'fix': f, 'candidate_relationships': found}
+    job = app.start_job('fix', ['Applying the data fixes to every row', 'Profiling the table again', 'Finding relationships again'], run)
+    return {'fix': f, 'job': job}
+
+
+def _make_key(root, b):
+    """Approve a column as the table's own key, only when it is unique and never empty on every row."""
+    from binggio import prepared
+    from binggio.registry import store
+    cid, table, column = b['connection'], b['table'], b['column']
+    note = (b.get('note') or '').strip()
+    if not note: raise ApiError('Say why this column identifies the rows of %s' % table)
+    chk = prepared.key_check(root, _conn(root, cid), table, [column])
+    if not chk['unique']:
+        why = []
+        if chk['missing_rows']: why.append('%s rows have no value' % '{:,}'.format(chk['missing_rows']))
+        if chk['duplicate_rows']: why.append('%s rows repeat a value (%s%%)' % ('{:,}'.format(chk['duplicate_rows']), chk['duplicate_pct']))
+        raise ApiError('%s cannot be the key of %s: %s, so each value would not point at exactly one row and joined totals would be wrong. '
+                       'Add the data fix "Keep one row for each key value" (if the repeats are true duplicates), or combine it with another '
+                       'column into a new key, then try again.' % (column, table, ' and '.join(why)))
+    cur = next((r for r in _all_roles(root, connection_id=cid, table=table) if r['column'] == column), None)
+    if cur is None: raise ApiError('Profile the table first (Settings > Profile and discover again)')
+    rev = cur['decision']['revision'] if cur['decision'] else 0
+    r = store.decide_column(root, cid, table, column, action='approve', actor=_by(b),
+                            note='%s (checked on all %s rows: unique, never empty)' % (note, '{:,}'.format(chk['rows'])),
+                            expected_revision=rev, role='PRIMARY_KEY_CANDIDATE')
+    return {'ok': True, 'check': chk, 'revision': r['revision']}
+
+
+def _discovery_report(root):
+    from binggio.discovery import store as graph
+    from binggio.catalog import catalog
+    rep = graph.attempts(root)
+    names = {c['id']: c['name'] for c in catalog.list_connections(root)}
+    if not rep:
+        return {'ran': False, 'message': 'Relationship discovery has not run with this version yet. Run Settings > Profile and discover again.'}
+    tables = rep.get('tables') or []
+    cols = rep.get('columns') or []
+    for x in tables + cols: x['source'] = names.get(x.get('connection_id'), x.get('connection_id'))
+    summ = {'tables': len(tables), 'checked': sum(t['status'] == 'checked' for t in tables),
+            'skipped': sum(t['status'] != 'checked' for t in tables), 'linked_tables': sum(bool(t.get('linked')) for t in tables),
+            'unlinked_tables': [t['table'] for t in tables if not t.get('linked')],
+            'columns_without_link': len(cols), 'format_hints': sum(1 for c in cols if c.get('format_hint')),
+            'near_misses': sum(1 for c in cols if c.get('near_misses'))}
+    return {'ran': True, 'generated_at': rep.get('generated_at'), 'rules': rep.get('rules'), 'summary': summ, 'tables': tables, 'columns': cols,
+            'manual': sorted(graph.manual_ids(root))}
+
+
+def _link_action(root, b):
+    from binggio import links
+    from binggio.registry import store
+    from binggio.discovery import store as graph
+    act = b.get('action') or 'add'
+    if act == 'remove':
+        rel = store.get_artifact(root, 'relationship:' + b['edge_id'])
+        if rel and rel['status'] == 'approved': raise ApiError('Revoke the approval first, then remove the link')
+        try: graph.remove_manual_edge(root, b['edge_id'], _by(b))
+        except Exception as e: raise ApiError(str(e))
+        return {'ok': True}
+    note = (b.get('note') or '').strip()
+    try:
+        r = links.add(root, _side(b['child']), _side(b['parent']), _by(b), note)
+    except links.LinkError as e:
+        raise ApiError(str(e))
+    out = {'edge_id': r['edge']['id'], 'already_proposed': r['already_proposed'], 'check': r['check'], 'approved': False}
+    if b.get('approve'):
+        card = b.get('cardinality') or r['check'].get('suggested_cardinality') or 'many_to_one'
+        if r['check']['coverage_pct'] < 45 and not b.get('confirm_weak'):
+            out['approve_error'] = 'Only %s%% of the child values are found in the parent. It was added for review but not approved.' % r['check']['coverage_pct']
+            return out
+        try:
+            rev = (store.get_artifact(root, 'relationship:' + out['edge_id']) or {}).get('revision', 0)
+            store.decide_relationship(root, out['edge_id'], action='approve', actor=_by(b), note=note, expected_revision=rev, cardinality=card,
+                                      join_note=b.get('join_note') or '')
+            out['approved'] = True
+        except Exception as e:
+            if not isinstance(e, _expected_errors()): raise
+            out['approve_error'] = str(e)
+    return out
