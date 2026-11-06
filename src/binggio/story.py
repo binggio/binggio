@@ -143,6 +143,7 @@ class Source:
         self._lookups = {}
         self._dims = {}
         self.partial = set()
+        self.progress = lambda msg: None
 
     def _cols(self, t):
         cols = set(self.roles.get(t, {}))
@@ -154,6 +155,10 @@ class Source:
         """(columns, rows) of t's approved columns, first STORY_ROWS rows (data fixes applied)."""
         if t not in self._data:
             from binggio import prepared
+            if not prepared.is_ready(self.root, self.conn, t):
+                self.progress('Preparing %s for fast reading (first time only)' % t)
+            else:
+                self.progress('Reading %s' % t)
             cols = self._cols(t)
             data = prepared.column_values(self.root, self.conn, t, cols, STORY_ROWS) if cols else {}
             n = len(next(iter(data.values()))) if data else 0
@@ -223,10 +228,11 @@ BUDGET_SECONDS = 60     # testing stops after this; the page says how many measu
 KW_MAX = 20_000         # values per group used for the Kruskal-Wallis test (evenly spread); totals use all rows
 
 
-def build(root, connection_id, top=6, table=None):
+def build(root, connection_id, top=6, table=None, progress=None):
     """The strongest facts in one source; with `table`, the facts about that table (its own
     measures and dates, split by its categories and those of tables it links to)."""
     src = Source(root, connection_id)
+    src.progress = progress or (lambda msg: None)
     all_tables = sorted(src.roles)
     if table is not None and table not in src.roles:
         raise ValueError('No approved columns in table %s of this source' % table)
@@ -259,9 +265,10 @@ def build(root, connection_id, top=6, table=None):
     # drivers (time-bounded: a source with very many measures and categories says what it skipped)
     deadline = time.monotonic() + BUDGET_SECONDS
     skipped = 0
-    for t, c, vals, agg in measures:
+    for mi, (t, c, vals, agg) in enumerate(measures):
         if time.monotonic() > deadline:
             skipped += 1; continue
+        src.progress('Testing %s against its categories (measure %d of %d)' % (c, mi + 1, len(measures)))
         for label, dvals, path in src.dimensions(t):
             if time.monotonic() > deadline:
                 skipped += 1; break
@@ -298,6 +305,7 @@ def build(root, connection_id, top=6, table=None):
                           'chart': {'type': 'bar', 'labels': d['order'][:12], 'values': [round(d['stat'][k], 2) for k in d['order'][:12]],
                                     'unit': '%s %s' % (d['agg'], _words(d['c']))},
                           'tables': d['path'], 'ask': 'What is the %s %s by %s?' % ('total' if d['agg'] == 'sum' else 'average', _words(d['c']), d['label'])})
+    src.progress('Looking for concentration, trends and gaps')
     # concentration: top 3 references by row count (and by the table's summable measure)
     for t in tables:
         for ccol, pt, pcol in src.links.get(t, []):

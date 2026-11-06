@@ -401,21 +401,42 @@ def api(app: App, method, path, q, body):
 
 
 _STORY_CACHE = {}
+_STORY_JOBS = {}
+_STORY_LOCK = threading.Lock()
 
 
 def _story_cached(root, cid, table):
-    """The data story reads up to 100,000 rows per table; reuse it until a decision is made or a
-    source table changes (its fingerprint), so revisiting the page is instant."""
+    """The data story, worked out in the background. The first request starts it and returns its
+    progress; the page asks again until it is ready. A finished story is kept until a decision is
+    made or a source table changes (its fingerprint), so revisiting the page is instant."""
     from binggio import story
     from binggio.registry import store
     from binggio.profiling import store as profiles
     last = (store.events(root, limit=1)['items'] or [{}])[0].get('id')
     prints = tuple(sorted((p['table'], str(p.get('profiled_at')), bool(p.get('stale'))) for p in profiles.list_profiles(root, connection_id=cid)))
     key = (str(root), cid, table, last, prints)
-    if key not in _STORY_CACHE:
-        if len(_STORY_CACHE) > 50: _STORY_CACHE.clear()
-        _STORY_CACHE[key] = story.build(root, cid, table=table)
-    return _STORY_CACHE[key]
+    if key in _STORY_CACHE:
+        return {**_STORY_CACHE[key], 'ready': True}
+    with _STORY_LOCK:
+        job = _STORY_JOBS.get(key)
+        if job is None or job['status'] == 'failed' and time.time() - job['started'] > 5:
+            job = _STORY_JOBS[key] = {'status': 'running', 'step': 'Starting', 'started': time.time(), 'error': None}
+
+            def run():
+                try:
+                    r = story.build(root, cid, table=table, progress=lambda m: job.__setitem__('step', m))
+                    if len(_STORY_CACHE) > 50: _STORY_CACHE.clear()
+                    _STORY_CACHE[key] = r
+                    job['status'] = 'done'
+                except Exception as e:
+                    job['status'] = 'failed'; job['error'] = str(e) or type(e).__name__
+                    if not isinstance(e, _expected_errors()): log.error('story failed\n%s', traceback.format_exc())
+            threading.Thread(target=run, daemon=True).start()
+    if job['status'] == 'done' and key in _STORY_CACHE:
+        return {**_STORY_CACHE[key], 'ready': True}
+    if job['status'] == 'failed':
+        raise ApiError('The data story could not be worked out: %s' % job['error'], 500)
+    return {'ready': False, 'step': job['step'], 'seconds': round(time.time() - job['started'])}
 
 
 def _open_issues(root):

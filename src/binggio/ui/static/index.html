@@ -55,7 +55,7 @@ main{min-width:0}
 .panel>.head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .panel>.head h2{margin:0;flex:1}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:550;white-space:nowrap}
 .btn:hover{border-color:#b9c4d4}
@@ -129,7 +129,8 @@ ol.steps li.now::before{border-color:var(--blue);color:var(--blue)}
 .err-box{background:var(--red2);color:var(--red);border-radius:8px;padding:10px 12px;margin:10px 0}
 .note-box{background:var(--blue2);color:#2e2690;border-radius:8px;padding:10px 12px;margin:10px 0}
 .warn-box{background:var(--amber2);color:#7a4a08;border-radius:8px;padding:10px 12px;margin:10px 0}
-.split{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
+.split{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px;align-items:start}
+.split>*,.grid2>*{min-width:0}
 .list a{display:block;padding:6px 10px;border-radius:6px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .list a:hover{background:var(--paper);text-decoration:none} .list a.on{background:var(--blue2);color:var(--blue);font-weight:600}
 .list .grp{font-size:12px;color:var(--muted);padding:10px 10px 4px;font-weight:600}
@@ -212,7 +213,12 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--paper)}
 @media (max-width:700px){.drawer .grid2{grid-template-columns:1fr}}
 ol.fixes{margin:0 0 8px;padding-left:20px} ol.fixes li{margin:0 0 8px}
 .checkcols{display:flex;flex-wrap:wrap;gap:4px 12px;margin:6px 0;max-height:150px;overflow:auto}
-.checkcols label{white-space:nowrap}
+.checkcols label{white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+/* Explore: the fix and key panels fit the page whatever the width of the table above them */
+.tools2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start}
+.tools2>*{min-width:0}
+.tools2 table.t{table-layout:fixed} .tools2 td,.tools2 code,ol.fixes b,ol.fixes .small{overflow-wrap:anywhere;word-break:break-word}
+#td .panel{min-width:0;max-width:100%}
 #gsvg line[marker-end]{pointer-events:stroke}
 </style>
 </head>
@@ -696,7 +702,7 @@ async function pageExplore(cid, table) {
       <td>${esc(c.type)}</td><td class="num">${fmt(c.distinct)}</td><td class="num">${c.missing_pct == null ? '–' : c.missing_pct + '%'}</td>
       <td title="${esc((c.evidence || []).join('\n'))}">${esc(ROLE[c.suggested] || c.suggested || '')}</td><td>${c.status === 'approved' ? esc(ROLE[c.approved_role] || c.approved_role) : pill(c.status || 'pending')}</td>
       <td>${S.state.demo ? '' : `<button class="btn ghost sm" data-fixcol="${esc(c.name)}" title="Add a data fix for this column">Fix…</button>`}</td></tr>`).join('')}</table></div></div>
-    <div class="grid2" style="align-items:start">
+    <div class="tools2">
       <div class="panel" id="fx-panel"><div class="head"><h2>Data fixes</h2>${S.state.demo ? '' : '<button class="btn sm primary" id="fx-add">Add a fix</button>'}</div><div id="fx-body"><div class="empty">Loading…</div></div></div>
       <div class="panel" id="kt-panel"><div class="head"><h2>Key tools</h2></div><div id="kt-body"></div></div></div>
     <div class="panel"><div class="head"><h2>Relationships</h2>${S.state.demo ? '' : `<button class="btn sm" id="ex-link">Add a relationship</button>`}</div>${d.links.length ? `<table class="t"><tr><th>From</th><th>To</th><th class="num">Score</th></tr>${d.links.map(l => `<tr>
@@ -864,7 +870,7 @@ function keyTools(cid, table, d, reload) {
       out.innerHTML = `<div class="${r.unique ? 'note-box' : 'warn-box'} small"><b>${esc(name)}</b>: ${fmt(r.rows)} rows, ${fmt(r.distinct)} different values${r.missing_rows ? `, ${fmt(r.missing_rows)} empty` : ''}${r.duplicate_rows ? `, <b>${fmt(r.duplicate_rows)} rows repeat a value (${r.duplicate_pct}%)</b>` : ''}.
           ${r.unique ? ' Unique and never empty on every row: it can be the table\'s key.' : ' Not a key as it stands.'}</div>
         ${r.examples.length ? `<div class="small muted">Most repeated values</div><table class="t small"><tr><th>Value</th><th class="num">Rows</th></tr>${r.examples.map(x => `<tr><td><code>${esc(x.value)}</code></td><td class="num">${fmt(x.rows)}</td></tr>`).join('')}</table>` : ''}
-        <div class="row" style="margin-top:8px">${S.state.demo ? '' : r.unique ? (chosen.length === 1 ? `<button class="btn sm good" id="kt-make">Make ${esc(name)} the table's key</button>` : `<button class="btn sm primary" id="kt-combine">Create this combined key</button>`)
+        <div class="row" style="margin-top:8px">${S.state.demo ? '' : r.unique ? (chosen.length === 1 ? `<button class="btn sm good" id="kt-make" style="white-space:normal;text-align:left">Make ${esc(name)} the table's key</button>` : `<button class="btn sm primary" id="kt-combine">Create this combined key</button>`)
           : `<button class="btn sm" id="kt-dedupe">Keep one row for each value…</button>${chosen.length === 1 ? '<span class="small muted">or tick another column and check the combination</span>' : `<button class="btn sm" id="kt-combine">Combine anyway…</button>`}`}</div>`;
       if ($('#kt-make')) $('#kt-make').onclick = async () => {
         try {
@@ -1697,12 +1703,17 @@ async function pageStory(cid, table) {
   if (!cid) cid = [...srcs].sort((a, b) => a.created_at < b.created_at ? 1 : -1)[0].id;
   p.innerHTML = `<div class="row" style="margin-bottom:14px"><select id="st-src" aria-label="Source">${srcs.map(s => `<option value="${esc(s.id)}" ${s.id === cid ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>
     <select id="st-table" aria-label="Table" hidden></select>
-    <span class="muted small" id="st-note">${table ? 'The facts about this table, from approved measures and categories only.' : 'The facts that matter most across this source, from approved measures and categories only.'}</span></div><div id="st"><div class="empty">Testing every approved measure against every approved category… <span id="st-secs"></span><div class="faint small">Large sources take up to a minute the first time; after that the story opens at once until the data or a decision changes.</div></div></div>`;
-  const t0 = Date.now(), timer = setInterval(() => { const el = $('#st-secs'); if (!el) return clearInterval(timer); el.textContent = Math.round((Date.now() - t0) / 1000) + ' s'; }, 1000);
+    <span class="muted small" id="st-note">${table ? 'The facts about this table, from approved measures and categories only.' : 'The facts that matter most across this source, from approved measures and categories only.'}</span></div><div id="st"><div class="empty"><span id="st-step">Starting…</span> <span class="faint" id="st-secs"></span><div class="faint small">The first time, each table is prepared for fast reading; after that the story opens at once until the data or a decision changes. You can leave this page: the work carries on.</div></div></div>`;
   $('#st-src').onchange = e => location.hash = '#story/' + encodeURIComponent(e.target.value);
-  let d;
-  try { d = await api('/api/story?connection=' + encodeURIComponent(cid) + (table ? '&table=' + encodeURIComponent(table) : '')); }
-  finally { clearInterval(timer); }
+  // The story is worked out in the background; ask until it is ready, showing what it is doing.
+  const url = '/api/story?connection=' + encodeURIComponent(cid) + (table ? '&table=' + encodeURIComponent(table) : '');
+  let d = await api(url);
+  while (!d.ready) {
+    if (!$('#st-step')) return;
+    $('#st-step').textContent = d.step + '…'; $('#st-secs').textContent = d.seconds + ' s';
+    await new Promise(r => setTimeout(r, 1000));
+    d = await api(url);
+  }
   if (!$('#st')) return;
   if ((d.tables || []).length > 1) {
     const sel = $('#st-table'); sel.hidden = false;
