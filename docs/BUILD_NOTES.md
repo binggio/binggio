@@ -15,6 +15,23 @@ modified). Eight parts.
 | 7. The app | `binggio ui`: start screen, data sources (CSV, Excel, SQLite, SQL Server, Oracle, PostgreSQL), explore, onboarding, review (roles, relationships, concepts, terms: approve / reject / revoke / reopen, bulk), relationship map, ask with provenance, activity, settings. Standard library server on 127.0.0.1 with a session token and host check; secrets in memory only | `test_ui` (token and host checks, overview, 10 sample questions match the verified answers, full new-user flow); simulator journey `web app` (installed command, API, and all 11 screens in a browser when Playwright is present) |
 | 8. Speed | Within one status, review or answer call each table's profile and freshness are worked out once (`evaluation_scope`); nothing is reused across calls | demo `status`: 8.4 s -> 0.7 s, identical results |
 
+## 0.1.7 (6 Nov 2026)
+
+Shaped by the column names and value shapes of nine enterprise extracts (book, book association,
+book hierarchy, desk, portfolio, reporting hierarchy, employee, matrix assignment, instrument).
+Test data is random (`tests/fixtures/trading_schema.py`); no real values were used.
+
+| What | 0.1.6 | 0.1.7 |
+| --- | --- | --- |
+| Relationships found on the nine-table test data | 0 (no column unique: one row per record per month and version) | 8 masters proposed (Employee with 13 member columns in 6 tables, Book, Desk, Portfolio, UBR, Cost centre, Legal entity, Calendar); 40 links once approved |
+| Distinct / empty counts | first 2,500 rows | every row (1.5 million rows profiled in 51 s, prepared copies included) |
+| Versions, levels, codes, flags as Measure | yes | no |
+| Approvals after a profiler improvement | could go stale | kept: column approvals bind to the column and the table's content (signature rule 4; older workspaces are migrated before re-profiling, only approvals current under the old rule are carried) |
+
+New: `masters.py` (recommend / approve / build / link), `profiling/shapes.py` (name endings and
+groups), snapshot guard in the engine, data fix "Add a date column", Review › Masters, masters at
+the centre of the map. Tests: `tests/test_masters.py`.
+
 ## 0.1.4 (6 Nov 2026)
 
 Measured on a 100-table workspace with 10 million rows (372 MB of CSV), standard library only:

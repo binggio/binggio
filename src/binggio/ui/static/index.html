@@ -217,7 +217,16 @@ ol.fixes{margin:0 0 8px;padding-left:20px} ol.fixes li{margin:0 0 8px}
 /* Explore: the fix and key panels fit the page whatever the width of the table above them */
 .tools2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start}
 .tools2>*{min-width:0}
-.tools2 table.t{table-layout:fixed} .tools2 td,.tools2 code,ol.fixes b,ol.fixes .small{overflow-wrap:anywhere;word-break:break-word}
+.tools2 table.t{table-layout:fixed}
+table.cols{table-layout:fixed;min-width:640px} table.cols td:first-child,table.cols th:first-child{overflow-wrap:anywhere;word-break:break-word}
+.gtag{display:inline-block;font-size:11px;color:var(--muted);background:#f1f4f8;border-radius:9px;padding:1px 7px;margin:2px 4px 0 0}
+.gsum{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px} .gsum span{background:#f1f4f8;border-radius:12px;padding:3px 10px;font-size:12.5px}
+.mcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:12px}
+.mcard{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:#fff;min-width:0}
+.mcard h3{margin:0 0 4px;font-size:15px} .mcard p{margin:6px 0;overflow-wrap:anywhere}
+.mcard .mstats{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--muted)}
+table.mem{table-layout:fixed;width:100%} table.mem td{overflow-wrap:anywhere;word-break:break-word}
+.modal.wide{max-width:min(980px,96vw);width:96vw} .tools2 td,.tools2 code,ol.fixes b,ol.fixes .small{overflow-wrap:anywhere;word-break:break-word}
 #td .panel{min-width:0;max-width:100%}
 #gsvg line[marker-end]{pointer-events:stroke}
 </style>
@@ -401,6 +410,14 @@ function watchJob(job, el, onDone) {
   setTimeout(tick, 500);
 }
 
+async function waitJob(job) {
+  for (;;) {
+    await new Promise(r => setTimeout(r, 700));
+    const j = await api('/api/jobs/' + job.id);
+    if (j.status !== 'running') return j;
+  }
+}
+
 /* Feedback goes by email with the versions only: never data, table names or questions. */
 const CONTACT = 'ashish@binggio.com';
 function feedbackLink(subject) {
@@ -520,7 +537,7 @@ async function pageHome() {
   ];
   const now = steps.findIndex(s => !s[2]);
   p.innerHTML = `
-    <div class="stats">
+    <div class="mstats">
       <div class="stat"><b>${fmt(o.sources.length)}</b><span>sources</span></div>
       <div class="stat"><b>${fmt(st.tables)}</b><span>tables</span></div>
       <div class="stat good"><b>${fmt(ans.tables || 0)}</b><span>tables ready for questions</span></div>
@@ -695,13 +712,14 @@ async function pageExplore(cid, table) {
   const fixedCols = new Set((d.fixes || []).map(f => f.column));
   td.innerHTML = `<div class="panel"><div class="head"><h2>${esc(table)} <span class="muted" style="font-weight:400">· ${esc(names[cid] || cid)}</span></h2>
     ${d.stale ? pill('stale') : ''}<a class="btn sm" href="#review/roles//${encodeURIComponent(table)}">Review its columns</a></div>
-    <p class="muted small">${d.profiled ? `Profiled from ${fmt(d.sample_rows)} rows${d.sample_complete ? ' (all rows)' : ' (a sample)'}${d.preview.row_count != null ? ' · ' + fmt(d.preview.row_count) + ' rows in the table' : ''}.` : 'Not profiled yet.'}
+    ${d.master ? `<div class="note-box small">Built by Binggio from the approved master <b>${esc(d.master.name)}</b>${d.master.approved_by ? ' (approved by ' + esc(d.master.approved_by) + ')' : ''}: one row per ${esc((d.master.name || '').toLowerCase())}, rebuilt from the data on every refresh. Change it in <a href="#review/masters">Review › Masters</a>.</div>` : ''}
+    <p class="muted small">${d.profiled ? (d.counts_scope === 'all_rows' && d.table_rows != null ? `Distinct and empty counts from all ${fmt(d.table_rows)} rows${d.sample_complete ? '' : `; value formats from the first ${fmt(d.sample_rows)}`}.`
+      : `Profiled from ${fmt(d.sample_rows)} rows${d.sample_complete ? ' (all rows)' : ' (a sample)'}${d.preview.row_count != null ? ' · ' + fmt(d.preview.row_count) + ' rows in the table' : ''}.`) : 'Not profiled yet.'}
       ${(d.fixes || []).length ? ` <b>${d.fixes.length} data fix${d.fixes.length === 1 ? '' : 'es'}</b> applied when this table is read.` : ''}</p>
-    <div class="scroll"><table class="t"><tr><th>Column</th><th>Type</th><th class="num">Distinct</th><th class="num">Empty</th><th>Suggested role</th><th>Approved</th><th></th></tr>
-    ${d.columns.map(c => `<tr><td><b>${esc(c.name)}</b>${c.declared_key ? ' <span class="pill k-entity">declared key</span>' : ''}${fixedCols.has(c.name) ? ' <span class="pill k-extends" title="A data fix changes how this column is read">fixed</span>' : ''}${c.findings.length ? `<div class="faint small">${c.findings.map(f => esc(f.message || f.detail || f.code || f)).join('; ')}</div>` : ''}</td>
-      <td>${esc(c.type)}</td><td class="num">${fmt(c.distinct)}</td><td class="num">${c.missing_pct == null ? '–' : c.missing_pct + '%'}</td>
-      <td title="${esc((c.evidence || []).join('\n'))}">${esc(ROLE[c.suggested] || c.suggested || '')}</td><td>${c.status === 'approved' ? esc(ROLE[c.approved_role] || c.approved_role) : pill(c.status || 'pending')}</td>
-      <td>${S.state.demo ? '' : `<button class="btn ghost sm" data-fixcol="${esc(c.name)}" title="Add a data fix for this column">Fix…</button>`}</td></tr>`).join('')}</table></div></div>
+    ${groupSummary(d)}
+    <div class="scroll">${colTable(d.columns.filter(c => !c.no_information), fixedCols)}</div>
+    ${d.columns.some(c => c.no_information) ? `<details style="margin-top:8px"><summary class="small">${fmt(d.columns.filter(c => c.no_information).length)} column(s) with no information (empty on every row, or the same value on every row), kept out of review</summary>
+      <div class="scroll">${colTable(d.columns.filter(c => c.no_information), fixedCols)}</div></details>` : ''}</div>
     <div class="tools2">
       <div class="panel" id="fx-panel"><div class="head"><h2>Data fixes</h2>${S.state.demo ? '' : '<button class="btn sm primary" id="fx-add">Add a fix</button>'}</div><div id="fx-body"><div class="empty">Loading…</div></div></div>
       <div class="panel" id="kt-panel"><div class="head"><h2>Key tools</h2></div><div id="kt-body"></div></div></div>
@@ -712,10 +730,33 @@ async function pageExplore(cid, table) {
     <table class="t"><tr>${d.preview.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr>${d.preview.rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</table></div></div>`;
   const reload = () => pageExplore(cid, table).catch(fail);
   $$('[data-fixcol]', td).forEach(b => b.onclick = () => fixModal(cid, table, {column: b.dataset.fixcol}, reload));
+  $$('[data-adddate]', td).forEach(b => b.onclick = () => fixModal(cid, table, {column: b.dataset.adddate, kind: 'add_date'}, reload));
   if ($('#fx-add')) $('#fx-add').onclick = () => fixModal(cid, table, {}, reload);
   if ($('#ex-link')) $('#ex-link').onclick = () => linkModal({child: {connection: cid, table}}, reload);
   fixesPanel(cid, table, reload).catch(e => { if (!e.stale && $('#fx-body')) $('#fx-body').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; });
   keyTools(cid, table, d, reload);
+}
+
+const GROUP_KIND = {reference: ['reference', 'references', 'A reference stored as domain + id + version'], person: ['person', 'people', 'Details of one person in several columns'],
+  code_name: ['code and name', 'codes with their names', 'A code kept with its name: a lookup inside the table'], hierarchy: ['hierarchy', 'hierarchies', 'A path flattened into numbered levels'],
+  optional: ['optional part', 'optional parts', 'Columns empty on the same rows']};
+function groupSummary(d) {
+  const gs = d.groups || []; if (!gs.length) return '';
+  const by = {}; gs.forEach(g => (by[g.kind] = by[g.kind] || []).push(g));
+  return `<details class="small" style="margin:0 0 8px"><summary>What this table is made of: ${Object.entries(by).map(([k, v]) => `${v.length} ${esc(v.length === 1 ? GROUP_KIND[k][0] : GROUP_KIND[k][1])}`).join(', ')}</summary>
+    <ul style="margin:6px 0 0;padding-left:18px">${gs.map(g => `<li><b>${esc(GROUP_KIND[g.kind][0])}: ${esc(g.name)}</b> <span class="muted">${esc(g.detail)}</span></li>`).join('')}</ul></details>`;
+}
+function colTable(cols, fixedCols) {
+  if (!cols.length) return '<p class="muted small">None.</p>';
+  return `<table class="t cols"><colgroup><col style="width:38%"><col style="width:9%"><col style="width:9%"><col style="width:9%"><col style="width:13%"><col style="width:13%"><col style="width:9%"></colgroup>
+    <tr><th>Column</th><th>Type</th><th class="num">Distinct</th><th class="num">Empty</th><th>Suggested role</th><th>Approved</th><th></th></tr>
+    ${cols.map(c => `<tr><td><b>${esc(c.name)}</b>${c.declared_key ? ' <span class="pill k-entity">declared key</span>' : ''}${c.own_identifier ? ' <span class="pill k-entity" title="Identifies the rows of this table, but repeats (see its evidence)">row identifier</span>' : ''}${fixedCols.has(c.name) ? ' <span class="pill k-extends" title="A data fix changes how this column is read">fixed</span>' : ''}
+      ${(c.groups || []).length ? `<div>${c.groups.map(g => `<span class="gtag">${esc(g.replace(':', ': ').replace('code_name', 'code+name'))}</span>`).join('')}</div>` : ''}
+      ${c.findings.length ? `<div class="faint small">${c.findings.map(f => esc(f.message || f.detail || f.code || f)).join('; ')}</div>` : ''}
+      ${!S.state.demo && c.findings.some(f => f.code === 'date_as_text') ? `<button class="btn sm" style="margin-top:4px" data-adddate="${esc(c.name)}">Add a date column</button>` : ''}</td>
+      <td>${esc(c.type)}</td><td class="num">${fmt(c.distinct)}</td><td class="num">${c.missing_pct == null ? '–' : c.missing_pct + '%'}</td>
+      <td title="${esc((c.evidence || []).join('\n'))}">${esc(ROLE[c.suggested] || c.suggested || '')}</td><td>${c.status === 'approved' ? esc(ROLE[c.approved_role] || c.approved_role) : pill(c.status || 'pending')}</td>
+      <td>${S.state.demo ? '' : `<button class="btn ghost sm" data-fixcol="${esc(c.name)}" title="Add a data fix for this column">Fix…</button>`}</td></tr>`).join('')}</table>`;
 }
 
 /* ------------------------------------------------------------------ data fixes */
@@ -731,7 +772,8 @@ const FIX_HELP = {
   digits: 'Only the digits are kept: "CUST-000042" becomes 000042 (or 42 without leading zeros).',
   date: 'Dates written as 03/04/2026 are read in the form you choose and stored as 2026-04-03.',
   combine: 'A new column joins several columns ("L001|C042"): a key made of two columns, for a table no single column identifies.',
-  dedupe: 'Only the first row for each key value is kept; later rows with the same key are left out when the table is read.'};
+  dedupe: 'Only the first row for each key value is kept; later rows with the same key are left out when the table is read.',
+  add_date: 'A new column <name>_date holds the date as YYYY-MM-DD (2026-01-05T10:22:33.123Z becomes 2026-01-05). The column itself is kept, time included. Dates such as 05/01/2026 are not guessed: choose the form.'};
 async function fixesPanel(cid, table, reload) {
   const d = await api('/api/fixes?connection=' + encodeURIComponent(cid) + '&table=' + encodeURIComponent(table));
   const el = $('#fx-body'); if (!el) return;
@@ -769,6 +811,7 @@ function fixParams(kind, cols, preset) {
     case 'combine': return `<label class="f">Name of the new column<input id="fp-name" placeholder="loan_key" value="${esc(preset.name || '')}"></label><div class="small muted">Columns to combine, in this order:</div>${colChecks('fp-cols', p.columns || [])}
       <label class="f" style="max-width:160px">Separator<input id="fp-sep" maxlength="3" value="${esc(p.sep || '|')}"></label>`;
     case 'dedupe': return `<div class="small muted">Key column(s): rows that repeat these values are left out, keeping the first.</div>${colChecks('fp-cols', p.columns || [])}`;
+    case 'add_date': return `<label class="f">The column's dates look like<select id="fp-fmt"><option value="">Recognised automatically (ISO dates, timestamps, 05-Jan-2026)</option>${(S.fixInfo.date_formats || []).map(f => `<option value="${esc(f)}">${esc(f.replace('%d', 'DD').replace('%m', 'MM').replace('%Y', 'YYYY').replace('%y', 'YY').replace('%b', 'Mon').replace('%H:%M:%S', 'hh:mm:ss'))}</option>`).join('')}</select></label>`;
     default: return '';
   }
 }
@@ -787,6 +830,7 @@ function readFixParams(kind, bg) {
     case 'date': return {format: v('fp-fmt')};
     case 'combine': return {columns: cols(), sep: v('fp-sep')};
     case 'dedupe': return {columns: cols()};
+    case 'add_date': return {format: v('fp-fmt')};
     default: return {};
   }
 }
@@ -820,7 +864,7 @@ async function fixModal(cid, table, preset, onDone) {
     toast('Fix added. Applying it to every row…');
     const box = $('#fx-job');
     if (box) watchJob(r.job, box, j => { if (j.status === 'done') { toast('Data fix applied'); onDone && onDone(); } });
-    else onDone && onDone();
+    else waitJob(r.job).then(j => { if (j.status === 'done') toast('Data fix applied'); else toast(j.error || 'The fix could not be applied', true); onDone && onDone(); });
   } catch (e) { fail(e); }
 }
 document.addEventListener('change', e => {
@@ -836,6 +880,7 @@ document.addEventListener('click', async e => {
     const r = await api('/api/fixes/preview', {connection: cid, table, kind: k, column: k === 'combine' ? $('#fp-name', bg).value.trim() : $('#fx-col', bg).value, params: readFixParams(k, bg)});
     box.innerHTML = `<div class="note-box small">${k === 'combine' ? `On the first ${fmt(r.rows_checked)} rows: ${fmt(r.duplicates_in_checked_rows)} repeated value(s), ${fmt(r.missing)} empty.`
         : k === 'dedupe' ? `On the first ${fmt(r.rows_checked)} rows, ${fmt(r.rows_removed_in_checked_rows)} row(s) would be left out.`
+        : k === 'add_date' ? `On the first ${fmt(r.rows_checked)} rows: new column ${esc(r.new_column)}; ${fmt(r.unreadable)} value(s) could not be read as dates.`
         : `On the first ${fmt(r.rows_checked)} rows, ${fmt(r.changed)} value(s) change${r.became_empty ? `, ${fmt(r.became_empty)} become empty` : ''}.${r.fill != null ? ' Fill value: ' + esc(r.fill) + '.' : ''} ${esc(r.note || '')}`}</div>
       ${r.warning ? `<div class="warn-box small">${esc(r.warning)}</div>` : ''}
       ${(r.examples || []).length ? `<table class="t small"><tr>${r.examples[0].before !== undefined ? '<th>Before</th>' : ''}<th>After</th></tr>${r.examples.map(x => `<tr>${x.before !== undefined ? `<td><code>${esc(x.before)}</code></td>` : ''}<td><code>${esc(x.after)}</code></td></tr>`).join('')}</table>` : ''}`;
@@ -946,7 +991,7 @@ async function pageOnboard(cid) {
 /* ================================================================== review */
 async function pageReview(tab, status, table) {
   tab = tab || 'roles';
-  const titles = {roles: 'Column roles', relationships: 'Relationships', concepts: 'Business concepts', terms: 'Business terms',
+  const titles = {roles: 'Column roles', masters: 'Masters', relationships: 'Relationships', concepts: 'Business concepts', terms: 'Business terms',
     definitions: 'Definitions', issues: 'Issues', automatic: 'Automatic'};
   const p = setPage('review', 'Review');
   const o = S.overview || await api('/api/overview');
@@ -959,10 +1004,171 @@ async function pageReview(tab, status, table) {
     discoveryReport($('#rv-report'), !total || o.relationships.pending + o.relationships.approved === 0).catch(e => { if (!e.stale && $('#rv-report')) $('#rv-report').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; });
   }
   if (tab === 'roles' || tab === 'relationships') return reviewList(tab, status || (cnt[tab] ? 'pending' : 'all'), table || '');
+  if (tab === 'masters') return reviewMasters();
   if (tab === 'definitions') return reviewDefinitions();
   if (tab === 'issues') return reviewIssues(status || 'open');
   if (tab === 'automatic') return reviewAutomatic();
   return reviewArtifacts(tab);
+}
+
+/* ------------------------------------------------------------------ masters (0.1.7) */
+async function reviewMasters() {
+  const el = $('#rv'); el.innerHTML = '<div class="panel empty">Looking for entities across your tables…</div>';
+  const d = await api('/api/masters');
+  if (!$('#rv')) return;
+  const ro = S.state.demo;
+  const pct = x => (Math.round(x * 1000) / 10) + '%';
+  const card = (m, i, approved) => {
+    const sp = m.spec, sor = sp.system_of_record;
+    return `<div class="mcard"><h3>${esc(m.name)}${m.kind === 'time' ? ' <span class="pill">calendar</span>' : ''}</h3>
+      ${approved ? `<div class="mstats"><span>${fmt(m.rows)} rows</span><span>${fmt(m.links.approved)} of ${fmt(m.links.total)} links approved</span><span>by ${esc(m.actor)}</span></div>
+        <p class="small muted">${esc(m.note || '')}</p><p class="small">${m.connection ? `<a href="#explore/${encodeURIComponent(m.connection)}/${encodeURIComponent(m.table)}">${esc(m.table)}</a>` : esc(m.table)}</p>`
+      : `<p class="small">${esc(m.why || '')}</p>
+        ${m.summary ? `<div class="mstats"><span>${fmt(m.summary.distinct)} different ${esc(m.name.toLowerCase())}s</span>${sor ? `<span>system of record: ${esc(sor.table)}.${esc(sor.column)}</span>` : ''}
+          ${m.summary.not_in_system_of_record ? `<span style="color:var(--amber)">${fmt(m.summary.not_in_system_of_record)} not in the system of record</span>` : ''}</div>` : ''}
+        <p class="small muted">${fmt((sp.members || []).length)} column(s): ${esc((sp.members || []).slice(0, 6).map(x => x.table.replace(/-YTD_\d+$/i, '') + '.' + x.column).join(', '))}${(sp.members || []).length > 6 ? '…' : ''}</p>`}
+      ${ro ? '' : `<div class="row" style="margin-top:8px">${approved ? `<button class="btn sm" data-medit="${i}">Change</button><button class="btn ghost sm" data-mwd="${i}">Withdraw</button>`
+        : `<button class="btn sm primary" data-mrev="${i}">Review</button><button class="btn ghost sm" data-mrej="${i}">Not a master</button>`}</div>`}</div>`;
+  };
+  const props = [...d.proposals, ...(d.calendar ? [d.calendar] : [])];
+  el.innerHTML = `<div class="panel"><div class="head"><h2>Masters</h2></div>
+      <p class="muted" style="margin-top:0">A master is one row per employee, book, desk and so on: the distinct list of an identifier, so it is unique even when no column of your tables is (the same book once per month and per version). Binggio proposes them from the identifiers it found on every row; you decide which columns belong. Approved masters are built as tables in the source <b>Binggio masters</b>, rebuilt on every refresh, and every member column links to them many-to-one. Nothing is built or linked until you approve it.</p>
+      ${d.approved.length ? `<h3>Approved</h3><div class="mcards">${d.approved.map((m, i) => card(m, i, true)).join('')}</div>` : ''}
+      <h3 style="margin-top:16px">Proposed</h3>${props.length ? `<div class="mcards">${props.map((m, i) => card(m, i, false)).join('')}</div>` : '<p class="muted">No new masters to propose. Every identifier that more than one table uses is already in a master, or was set aside.</p>'}
+      ${d.rejected.length ? `<details style="margin-top:12px"><summary class="small">${d.rejected.length} set aside</summary><ul class="small">${d.rejected.map((m, i) => `<li>${esc(m.name)}: ${esc(m.note || '')} (${esc(m.actor || '')}) ${ro ? '' : `<a href="#" data-mre="${i}">Reconsider</a>`}</li>`).join('')}</ul></details>` : ''}</div>
+    <div class="panel"><div class="head"><h2>Snapshot tables</h2></div>
+      <p class="muted" style="margin-top:0">A snapshot table holds a full copy of its records for every reporting period. Adding up across periods counts the same records again, so once you approve a table here, a total or count over it needs one period (for example the latest) or a result per period; otherwise Binggio refuses the question.</p>
+      ${d.snapshots.length ? `<div class="scroll"><table class="t"><tr><th>Table</th><th>One copy per</th><th>Why</th><th>Status</th><th></th></tr>${d.snapshots.map((x, i) => `<tr><td><b>${esc(x.table)}</b></td><td>${esc(x.period_column)}</td>
+        <td class="small">${esc(x.why)}</td><td>${pill(x.status === 'proposed' ? 'pending' : x.status)}${x.actor ? `<div class="small muted">${esc(x.actor)}</div>` : ''}</td>
+        <td>${ro ? '' : x.status === 'approved' ? `<button class="btn ghost sm" data-snap="${i}" data-act="withdraw">Withdraw</button>` : `<button class="btn sm primary" data-snap="${i}" data-act="approve">Approve</button> <button class="btn ghost sm" data-snap="${i}" data-act="reject">Not a snapshot</button>`}</td></tr>`).join('')}</table></div>`
+      : '<p class="muted">No table repeats its records per reporting period.</p>'}</div>`;
+  const reload = () => reviewMasters().catch(fail);
+  $$('[data-mrev]', el).forEach(b => b.onclick = () => masterModal(props[+b.dataset.mrev], reload));
+  $$('[data-medit]', el).forEach(b => b.onclick = () => masterModal(d.approved[+b.dataset.medit], reload));
+  $$('[data-mrej]', el).forEach(b => b.onclick = async () => {
+    try {
+      const m = props[+b.dataset.mrej], by = await needReviewer();
+      const note = await askText('Not a master', `${m.name} is set aside and not proposed again (you can reconsider it later).`, 'Why?', ''); if (!note) return;
+      await api('/api/masters', {action: 'reject', kind: m.kind, spec: m.spec, by, note}); toast('Set aside'); reload();
+    } catch (e) { fail(e); }
+  });
+  $$('[data-mwd]', el).forEach(b => b.onclick = async () => {
+    try {
+      const m = d.approved[+b.dataset.mwd], by = await needReviewer();
+      const note = await askText('Withdraw ' + m.name, 'The master table is removed and the approved links to it are revoked. Answers that used it stop until something else is approved.', 'Why?', ''); if (!note) return;
+      await api('/api/masters', {action: 'withdraw', id: m.id, by, note}); toast('Withdrawn'); reload();
+    } catch (e) { fail(e); }
+  });
+  $$('[data-mre]', el).forEach(a => a.onclick = async ev => {
+    ev.preventDefault();
+    try {
+      const m = d.rejected[+a.dataset.mre], by = await needReviewer();
+      const note = await askText('Reconsider ' + m.name, 'It is proposed again from the current data.', 'Why?', ''); if (!note) return;
+      await api('/api/masters', {action: 'withdraw', id: m.id, by, note}); reload();
+    } catch (e) { fail(e); }
+  });
+  $$('[data-snap]', el).forEach(b => b.onclick = async () => {
+    try {
+      const x = d.snapshots[+b.dataset.snap], act = b.dataset.act, by = await needReviewer();
+      const note = await askText({approve: 'Approve snapshot table', reject: 'Not a snapshot table', withdraw: 'Withdraw'}[act], x.why, 'Why? (kept with the decision)', ''); if (!note) return;
+      await api('/api/masters/snapshot', {connection: x.connection, table: x.table, period_column: x.period_column, action: act, by, note}); toast('Saved'); reload();
+    } catch (e) { fail(e); }
+  });
+}
+
+async function masterModal(m, onDone) {
+  try {
+    const time = m.kind === 'time';
+    const spec = JSON.parse(JSON.stringify(m.spec));
+    const sor = spec.system_of_record;
+    let header = [];
+    if (sor) { try { header = (await api('/api/table?connection=' + encodeURIComponent(sor.connection) + '&table=' + encodeURIComponent(sor.table))).columns.map(c => c.name); } catch (e) {} }
+    const all = (await api('/api/tables')).items;
+    const memRows = () => spec.members.map((x, i) => `<tr><td><input type="checkbox" data-inc="${i}" ${x.include !== false ? 'checked' : ''} aria-label="Include"></td>
+      <td><b>${esc(x.table)}</b>.${esc(x.column)}${x.needs_fix ? `<div class="small" style="color:var(--amber)">${esc((x.reasons || []).slice(-1)[0] || '')}</div>` : ''}</td>
+      <td>${time ? esc(x.format ? x.format.replace(/%Y/g, 'YYYY').replace(/%m/g, 'MM').replace(/%d/g, 'DD') : '') : `<input data-lab="${i}" value="${esc(x.label || '')}" style="width:100%">`}</td>
+      <td class="num">${x.coverage != null ? (Math.round(x.coverage * 1000) / 10) + '%' : (x.ready ? 'ready' : '')}</td>
+      <td class="small muted">${esc((x.reasons || []).filter(r => !/needs the data fix|add the data fix/i.test(r)).join('; '))}
+        ${x.needs_fix === 'digits' && !S.state.demo ? `<br><button class="btn sm" data-fixd="${i}">Add "Keep digits only"</button>` : ''}
+        ${x.needs_fix === 'add_date' && !S.state.demo ? `<br><button class="btn sm" data-fixdt="${i}">Add a date column</button>` : ''}</td></tr>`).join('');
+    const body = `<div class="fields"><label class="f">Name<input id="ms-name" value="${esc(spec.name)}" maxlength="40"></label>
+        ${time ? `<label class="f">Fiscal year starts in<select id="ms-fy">${['January','February','March','April','May','June','July','August','September','October','November','December'].map((n, i) => `<option value="${i + 1}" ${spec.fiscal_year_start_month === i + 1 ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}</div>
+      ${time ? '<p class="small muted">One row per day from the first to the last date used, with year, quarter, month, weekday, month end and fiscal year. Ticked date columns link to it.</p>'
+        : sor ? `<p class="small">System of record: <b>${esc(sor.table)}.${esc(sor.column)}</b>${sor.period_column || sor.version_column ? ` <span class="muted">(repeats per ${esc([sor.period_column, sor.version_column].filter(Boolean).join(' and '))}; the master keeps one row per ${esc(spec.name.toLowerCase())})</span>` : ''}</p>
+        <div class="fields">${sor.version_column ? `<label class="f">Which version describes it<select id="ms-ver"><option value="latest" ${spec.version_rule !== 'first' ? 'selected' : ''}>The latest version (highest ${esc(sor.version_column)})</option><option value="first" ${spec.version_rule === 'first' ? 'selected' : ''}>The first version</option></select></label>` : ''}
+        <label class="f">Which ${esc(spec.name.toLowerCase())}s it lists<select id="ms-inc"><option value="union" ${spec.include !== 'system_of_record' ? 'selected' : ''}>Every one used anywhere (missing ones are marked)</option><option value="system_of_record" ${spec.include === 'system_of_record' ? 'selected' : ''}>Only those in ${esc(sor.table)}</option></select></label></div>
+        <details><summary class="small">Details carried into the master from ${esc(sor.table)} (${(spec.attributes || []).length})</summary><div class="checkcols">${header.filter(h => h !== sor.column).map(h => `<label class="small"><input type="checkbox" name="ms-attr" value="${esc(h)}" ${(spec.attributes || []).includes(h) ? 'checked' : ''}> ${esc(h)}</label>`).join('')}</div></details>`
+        : '<p class="small muted">No table owns this entity: the master lists every value the ticked columns use.</p>'}
+      <h3 style="margin:12px 0 4px">Columns that refer to it</h3>
+      <div class="scroll" style="max-height:44vh"><table class="t mem"><colgroup><col style="width:6%"><col style="width:30%"><col style="width:20%"><col style="width:10%"><col style="width:34%"></colgroup>
+        <tr><th></th><th>Column</th><th>${time ? 'Written as' : 'Name of the link'}</th><th class="num">Found</th><th>Evidence (all rows)</th></tr><tbody id="ms-mem">${memRows()}</tbody></table></div>
+      ${time ? '' : `<div class="row" style="margin-top:8px"><select id="ms-at" aria-label="Table" style="flex:1;min-width:160px"><option value="">Add another column…</option>${all.filter(t => !/^MASTER_/.test(t.table)).map(t => `<option value="${esc(t.connection_id)}|${esc(t.table)}">${esc(t.table)}</option>`).join('')}</select>
+        <select id="ms-ac" aria-label="Column" style="flex:1;min-width:160px" disabled></select><button class="btn sm" id="ms-add" disabled>Check and add</button></div><div id="ms-addmsg"></div>`}
+      ${time ? '' : '<label class="small" style="display:block;margin-top:10px"><input type="checkbox" id="ms-applinks" checked> Also approve the links from these columns to the master (many rows to one; each is checked on every row first)</label>'}
+      <label class="f" style="margin-top:8px">Why this is right (kept with the decision)<textarea id="ms-note" rows="2" maxlength="600" placeholder="e.g. trader, book runner and controller ids are ERDS employee ids"></textarea></label>
+      <div id="ms-job"></div>`;
+    const done = modal((m.status === 'approved' ? 'Change master: ' : 'Review master: ') + m.name, body, [['Cancel', '', null], ['Approve and build', 'primary', null]]);
+    const bg = [...document.querySelectorAll('.modal-bg')].pop();
+    $('.modal', bg).classList.add('wide');
+    const save = [...$$('.mf button', bg)].pop();
+    const paint = () => { $('#ms-mem', bg).innerHTML = memRows(); bindRows(); };
+    const collect = () => {
+      $$('[data-inc]', bg).forEach(c => spec.members[+c.dataset.inc].include = c.checked);
+      $$('[data-lab]', bg).forEach(c => spec.members[+c.dataset.lab].label = c.value);
+      spec.name = $('#ms-name', bg).value.trim();
+      if ($('#ms-fy', bg)) spec.fiscal_year_start_month = +$('#ms-fy', bg).value;
+      if ($('#ms-ver', bg)) spec.version_rule = $('#ms-ver', bg).value;
+      if ($('#ms-inc', bg)) spec.include = $('#ms-inc', bg).value;
+      if (sor) spec.attributes = $$('input[name="ms-attr"]', bg).filter(x => x.checked).map(x => x.value);
+    };
+    const bindRows = () => {
+      $$('[data-fixd]', bg).forEach(b => b.onclick = () => { const x = spec.members[+b.dataset.fixd]; collect();
+        S.fixPreset = {params: {drop_leading_zeros: true}}; fixModal(x.connection, x.table, {column: x.column, kind: 'digits'}, () => toast('When the fix is applied, review the master again: the column will match')).finally(() => S.fixPreset = null); });
+      $$('[data-fixdt]', bg).forEach(b => b.onclick = () => { const x = spec.members[+b.dataset.fixdt]; collect();
+        fixModal(x.connection, x.table, {column: x.column, kind: 'add_date'}, () => toast('When the fix is applied, the new ' + x.column + '_date column is proposed for the calendar')); });
+    };
+    bindRows();
+    if ($('#ms-at', bg)) {
+      $('#ms-at', bg).onchange = async e => {
+        const [c, t] = e.target.value.split('|'); const sel = $('#ms-ac', bg);
+        sel.disabled = !t; $('#ms-add', bg).disabled = !t; if (!t) return;
+        const td = await api('/api/table?connection=' + encodeURIComponent(c) + '&table=' + encodeURIComponent(t));
+        sel.innerHTML = td.columns.filter(x => !x.no_information).map(x => `<option>${esc(x.name)}</option>`).join('');
+      };
+      $('#ms-add', bg).onclick = async () => {
+        const [c, t] = $('#ms-at', bg).value.split('|'), col = $('#ms-ac', bg).value, box = $('#ms-addmsg', bg);
+        collect(); box.innerHTML = '<div class="empty">Checking on every row…</div>';
+        try {
+          const member = {connection: c, table: t, column: col};
+          const r = await api('/api/masters/check', {member, master: {spec}});
+          spec.members.push({...member, label: col, coverage: r.coverage_pct / 100, include: r.coverage_pct >= 80,
+            reasons: [`${r.coverage_pct}% of ${fmt(r.distinct)} different values found` + (r.missing_examples.length ? ` (not found: ${r.missing_examples.join(', ')})` : '')].concat(r.hint ? [r.hint] : []),
+            needs_fix: r.hint ? 'digits' : null});
+          box.innerHTML = r.coverage_pct < 80 ? `<div class="warn-box small">Only ${r.coverage_pct}% of its values are in the master, so it was added unticked. ${esc(r.hint || '')}</div>` : '';
+          paint();
+        } catch (e) { box.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
+      };
+    }
+    save.onclick = async () => {
+      try {
+        const by = await needReviewer(); collect();
+        if (!spec.members.some(x => x.include !== false)) throw new Error('Tick at least one column');
+        save.disabled = true;
+        const r = await api('/api/masters', {action: 'approve', id: m.id || null, kind: m.kind, spec, by, note: $('#ms-note', bg).value,
+          approve_links: !!($('#ms-applinks', bg) || {}).checked});
+        watchJob(r.job, $('#ms-job', bg), j => {
+          if (j.status === 'done') {
+            const res = (j.result || {}).links || {};
+            toast(`${spec.name} built: ${fmt((res.added || []).length)} link(s)` + ((res.failed || []).length ? `, ${res.failed.length} could not be added` : ''));
+            if ((res.failed || []).length) $('#ms-job', bg).insertAdjacentHTML('beforeend', `<div class="warn-box small">${res.failed.map(f => esc(f.child + ': ' + f.error)).join('<br>')}</div>`);
+            else bg._close(true);
+            onDone && onDone();
+          } else save.disabled = false;
+        });
+      } catch (e) { save.disabled = false; fail(e); }
+    };
+    await done;
+  } catch (e) { fail(e); }
 }
 
 async function reviewList(tab, status, table) {
@@ -974,18 +1180,21 @@ async function reviewList(tab, status, table) {
       <span class="muted small" id="rv-sel">0 selected</span>
       <button class="btn good sm" data-act="approve">Approve</button><button class="btn bad sm" data-act="reject">Reject</button>
       <button class="btn sm" data-act="revoke">Revoke</button><button class="btn sm" data-act="reopen">Reopen</button></div>
-    <div class="scroll" style="max-height:66vh" id="rv-body"><div class="empty">Loading…</div></div><div id="rv-more" style="padding:10px 14px"></div></div>
+    <div class="small muted" id="rv-hidden" style="padding:6px 14px 0"></div><div class="scroll" style="max-height:66vh" id="rv-body"><div class="empty">Loading…</div></div><div id="rv-more" style="padding:10px 14px"></div></div>
     <p class="muted small">Click a row to see its evidence and decide one at a time. Approve uses the role or kind shown in each row. Revoke withdraws an approval; Reopen puts a rejected or revoked item back in the waiting list. Every decision is recorded with your name and a note.</p>`;
   const load = async (more) => {
     if (!more) { offset = 0; items = []; }
     const path = tab === 'roles'
-      ? `/api/review/roles?status=${status}&q=${encodeURIComponent(q)}&offset=${offset}&limit=300`
+      ? `/api/review/roles?status=${status}&q=${encodeURIComponent(q)}&offset=${offset}&limit=300${showEmpty ? '&all=1' : ''}`
       : `/api/review/relationships?status=${status}&q=${encodeURIComponent(q)}`;
     const d = await api(path); total = d.total; raw = (more ? raw : []).concat(d.items); offset = raw.length;
+    const hn = $('#rv-hidden');
+    if (hn) hn.innerHTML = d.hidden_no_information ? `${fmt(d.hidden_no_information)} column(s) with no information (empty, or one value on every row) are not listed. <a href="#" id="rv-showempty">Show them</a>` : '';
+    if ($('#rv-showempty')) $('#rv-showempty').onclick = ev => { ev.preventDefault(); showEmpty = true; load().catch(fail); };
     items = strongOnly ? raw.filter(strong) : raw.slice();
     draw();
   };
-  let strongOnly = false, raw = [];
+  let strongOnly = false, raw = [], showEmpty = false;
   const strong = x => x.coverage === 100 && x.score >= 0.95 && (x.evidence || {}).parent_uniqueness_pct === 100;
   const draw = () => {
     const body = $('#rv-body');
@@ -1408,7 +1617,7 @@ async function pageGraph() {
   let show = store.get('graphshow', 'approved+pending');
   p.innerHTML = `<div class="panel"><div class="row" style="margin-bottom:10px"><div class="legend" style="flex:1">
       <span><i style="border-color:var(--green)"></i>Approved</span><span><i style="border-color:var(--amber);border-top-style:dashed"></i>Waiting</span>
-      <span><i style="border-color:#c5ccd6;border-top-style:dotted"></i>Rejected or revoked</span><span><i style="border-color:var(--red)"></i>Data changed</span></div>
+      <span><i style="border-color:#c5ccd6;border-top-style:dotted"></i>Rejected or revoked</span><span><i style="border-color:var(--red)"></i>Data changed</span><span><b style="display:inline-block;width:11px;height:11px;background:var(--ink);border-radius:3px;vertical-align:-1px"></b> Master table</span></div>
       <select id="g-show"><option value="approved">Approved links</option><option value="approved+pending">Approved and waiting</option><option value="all">Everything</option></select>
       ${S.state.demo ? '' : '<button class="btn sm" id="g-draw" aria-pressed="false" title="Drag from the table that refers to the table it points at">Draw a link</button>'}</div>
     <div class="note-box small" id="g-drawhelp" hidden>Drawing: press on the table that <b>refers</b> (for example kyc_reviews) and drag to the table it <b>points at</b> (customers). A window then asks which columns link, and checks them on every row.</div>
@@ -1464,7 +1673,8 @@ async function pageGraph() {
         const f = dist * dist / k; a.dx -= dx / dist * f; a.dy -= dy / dist * f; b.dx += dx / dist * f; b.dy += dy / dist * f;
       }
       for (const a of nodes) {
-        a.dx += (W / 2 - a.x) * 0.9; a.dy += (H / 2 - a.y) * 0.9;
+        const g = a.master ? 3.5 : 0.9;           // masters are pulled to the centre: every table joins to them
+        a.dx += (W / 2 - a.x) * g; a.dy += (H / 2 - a.y) * g;
         const m = Math.max(Math.hypot(a.dx, a.dy), 0.01), step = Math.min(m, temp);
         a.x = Math.min(W - 20, Math.max(20, a.x + a.dx / m * step)); a.y = Math.min(H - 20, Math.max(20, a.y + a.dy / m * step));
       }
@@ -1487,7 +1697,9 @@ async function pageGraph() {
       const dash = e.status === 'pending' ? '5 4' : (e.status === 'rejected' || e.status === 'revoked') ? '2 4' : '';
       return `<line x1="${a.x}" y1="${a.y}" x2="${ex}" y2="${ey}" marker-end="url(#arr)" stroke="${highlight.has(e.edge_id) ? 'var(--blue)' : (ecolor[e.status] || '#999')}" stroke-width="${(highlight.has(e.edge_id) ? 4.5 : 1.6) / view.k}" ${dash ? `stroke-dasharray="${dash}"` : ''} data-e="${i}" style="cursor:pointer"/>
         <line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="transparent" stroke-width="${10 / view.k}" data-e="${i}" style="cursor:pointer"/>`; }).join('')}
-      ${nodes.map((n, i) => `<g data-n="${i}" style="cursor:pointer"><circle cx="${n.x}" cy="${n.y}" r="${7 / Math.sqrt(view.k)}" fill="${color(n)}" stroke="#fff" stroke-width="${1.5 / view.k}"/>
+      ${nodes.map((n, i) => n.master ? `<g data-n="${i}" style="cursor:pointer"><rect x="${n.x - 10 / Math.sqrt(view.k)}" y="${n.y - 10 / Math.sqrt(view.k)}" width="${20 / Math.sqrt(view.k)}" height="${20 / Math.sqrt(view.k)}" rx="${4 / view.k}" fill="var(--ink)" stroke="#fff" stroke-width="${1.5 / view.k}"/>
+        <text x="${n.x + 13 / view.k}" y="${n.y + 4 / view.k}" style="font-size:${12.5 / view.k}px;font-weight:700">${esc(n.table)}</text></g>`
+        : `<g data-n="${i}" style="cursor:pointer"><circle cx="${n.x}" cy="${n.y}" r="${7 / Math.sqrt(view.k)}" fill="${color(n)}" stroke="#fff" stroke-width="${1.5 / view.k}"/>
         <text x="${n.x + 9 / view.k}" y="${n.y + 4 / view.k}" style="font-size:${11 / view.k}px">${esc(n.table)}</text></g>`).join('')}
       ${rubber ? `<line x1="${rubber.a.x}" y1="${rubber.a.y}" x2="${rubber.x}" y2="${rubber.y}" stroke="var(--blue)" stroke-width="${2 / view.k}" stroke-dasharray="4 3" marker-end="url(#arr)" pointer-events="none"/>` : ''}</g>`;
     $$('[data-e]', svg).forEach(l => l.onclick = ev => { ev.stopPropagation(); sideEdge(edges[+l.dataset.e]); });

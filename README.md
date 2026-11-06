@@ -77,6 +77,20 @@ Built for data stewards:
   again whenever the data is refreshed. Approvals on a fixed table must be re-confirmed.
 - **Key tools.** Check a column, or several together, on every row (not a sample): how many rows
   repeat or are empty, with examples. Make it the table's key only when it is unique.
+- **Masters, for data where no column is unique.** Enterprise extracts often repeat every record
+  once per reporting month and per version, so no column can be a key. Binggio proposes masters
+  (one row per employee, book, desk ...) from the identifiers it finds on every row, and a
+  calendar; a person approves which columns belong. Approved masters are built as tables, rebuilt
+  on every refresh, sit at the centre of the relationship map, and every member column links to
+  them many-to-one. Gaps are shown (ids used in a table but missing from the system of record),
+  never hidden.
+- **Snapshot tables.** Once a person marks a table as one copy per reporting period, a total or
+  count across periods is refused: an answer needs one period or a result per period.
+- **Profiles on every row, read the way enterprise names are written.** Distinct and empty
+  counts come from all rows. Names written as one word are read by their ending: a version, a
+  level, a code or a flag is never a measure; an email is never a key; references stored as
+  domain / id / version, people stored as blocks of columns, code-and-name pairs and flattened
+  hierarchies are shown as groups; columns with no information are kept out of review.
 
 It runs on this computer only (127.0.0.1), needs no internet, and adds no dependencies. The page
 carries a random session token so other web sites cannot use it. Database passwords and model keys

@@ -41,6 +41,8 @@ _PLAIN_NUMBER=re.compile(r'-?\d+(?:\.\d+)?\Z')
 _GROUPED_NUMBER=re.compile(r'-?\d{1,3}(?:,\d{2,3})*,\d{3}(?:\.\d+)?\Z')
 _ISO_DATE=re.compile(r'\d{4}-\d{2}-\d{2}(?:[T ][0-9:.+\-Z]*)?\Z')
 _SLASH_ISO_DATE=re.compile(r'(\d{4})/(\d{2})/(\d{2})\Z')
+_MONTH_NAME_DATE=re.compile(r'(\d{1,2})[- ]([A-Za-z]{3})[- ](\d{4})\Z')
+_MONTHS={m:i+1 for i,m in enumerate(('jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'))}
 
 
 def normalize_key(value):
@@ -1324,7 +1326,11 @@ def arrange_rows(u,tid,columns,rows):
             elif kind=='key':out.append(normalize_key(value))
             elif kind=='date':
                 text=str(value).strip();m=_SLASH_ISO_DATE.fullmatch(text)
-                out.append(m.group(1)+'-'+m.group(2)+'-'+m.group(3) if m else text)
+                if m:out.append(m.group(1)+'-'+m.group(2)+'-'+m.group(3))
+                else:
+                    m=_MONTH_NAME_DATE.fullmatch(text)     # 05-Jan-2026: the month name makes it unambiguous
+                    mon=_MONTHS.get(m.group(2).casefold()) if m else None
+                    out.append('%s-%02d-%02d' % (m.group(3),mon,int(m.group(1))) if mon else text)
             else:out.append(str(value))
         yield out
 
@@ -1746,8 +1752,36 @@ def _answer_cache_on():
     return os.environ.get('BINGGIO_ANSWER_CACHE','on').lower()!='off'
 
 
+def _snapshot_guard(project,u,plan):
+    """v0.1.7: a table approved as a snapshot (one full copy per reporting period) must not be added
+    up across periods: a sum, average or count needs one period (a filter) or a result per period."""
+    if not any(a['fn'] in ('sum','avg','count') for a in plan.get('aggregate') or []):return
+    try:
+        from binggio import masters
+        snaps=masters.snapshot_tables(project)
+    except Exception:
+        return
+    if not snaps:return
+    used=list(plan.get('group_by') or [])+[a['field'] for a in plan['aggregate'] if a['field']]
+    filtered=[f['field'] for f in plan.get('filters') or []]+list(_where_fields(plan.get('where')))
+    tables={plan.get('entity')}|{u.fields[f]['table_id'] for f in used+filtered if f in u.fields}
+    for s in snaps:
+        tid=next((t for t,info in u.tables.items() if info.get('connection_id')==s['connection_id'] and info.get('table')==s['table_name']),None)
+        if tid is None or tid not in tables:continue
+        period=next((f for f in u.by_table[tid] if u.fields[f]['name']==s['period_column']),None)
+        if period is None:
+            raise Blocked('%s holds one copy of its records per %s, but %s is not approved, so an answer cannot pick one %s. '
+                          'Approve %s first.' % (s['table_name'],s['period_column'],s['period_column'],s['period_column'],s['period_column']))
+        if period in (plan.get('group_by') or []) or period in filtered:continue
+        if plan.get('latest') and plan['latest'].get('table')==tid:continue
+        raise Blocked('%s is a snapshot table: every %s repeats its records, so a total or count across %ss counts the same '
+                      'records again. Ask for one %s (for example the latest) or for a result per %s.'
+                      % (s['table_name'],s['period_column'],s['period_column'],s['period_column'],s['period_column']))
+
+
 def execute(project,u,plan,prior=None,source_override=None,profile_override=None):
     _recheck_provenance(project,u,prior if plan['cohort'] else None,profile_override)
+    _snapshot_guard(project,u,plan)
     compiler=Compiler(u,plan,prior)
     con=sqlite3.connect(':memory:')
     _deadline=time.monotonic()+QUERY_SECONDS

@@ -7,6 +7,7 @@ semantic roles are heuristics, never approved mappings. Does not import oracle d
 Never exports raw values; diagnostic findings contain aggregates only.
 """
 from __future__ import annotations
+from contextlib import closing
 
 import csv
 import hashlib
@@ -24,10 +25,12 @@ from binggio.catalog.connectors import (ConnectionErrorSafe, MAX_CSV_BYTES,
     MAX_COLUMNS, _quote_identifier, _readonly, _unwrapped_row,
     list_sqlite_tables, resolve_source)
 
-VERSION = '5.1.0'
+VERSION = '5.2.0'
 SAMPLE_LIMIT = 2500
 MISSING = {'', 'null', 'none', 'n/a', 'na', 'nan', '?'}
-DATE_FORMATS = ('%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S')
+DATE_FORMATS = ('%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M',
+                '%Y-%m-%dT%H:%M', '%d-%b-%Y', '%d %b %Y', '%d-%b-%y', '%d-%b-%Y %H:%M', '%d-%b-%Y %H:%M:%S', '%d %b %Y %H:%M:%S',
+                '%d/%m/%Y %H:%M:%S', '%d/%m/%Y %H:%M', '%d.%m.%Y')
 NUMERIC = re.compile(r'^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$|^[+-]?\.\d+$')
 INTEGER = re.compile(r'^[+-]?\d+$')
 ID_HINT = re.compile(r'(?:^|_)(?:id|key|ref|code|uuid|identifier|no|num|nbr|number)$|(?:^|_)(?:id|key|ref|code|uuid)(?:_|$)|[a-z](?:Id|ID|No|Num|Number)$'
@@ -36,8 +39,9 @@ ID_HINT = re.compile(r'(?:^|_)(?:id|key|ref|code|uuid|identifier|no|num|nbr|numb
 NOT_KEY_NAMES = ('postcode', 'postal_code', 'zip', 'zipcode', 'zip_code', 'phone', 'phone_number', 'mobile_number', 'fax_number',
                  'contact_number', 'house_number', 'street_number', 'flat_number', 'iban', 'swift', 'tax_id')
 DATE_HINT = re.compile(r'(?:date|_at$|^as_of|period_|_period$|_dt$|_time$|^dt_)', re.I)
-MEASURE_HINT = re.compile(r'(?:amount|revenue|balance|cost|fee|interest|limit|budget|score|rating|threshold|total|price|value|quantity|count|severity|level)', re.I)
-STATUS_HINT = re.compile(r'(?:status|state|stage|outcome|resolution)', re.I)
+MEASURE_HINT = re.compile(r'(?:amount|revenue|balance|cost|fee|interest|limit|budget|score|rating|threshold|total|price|value|quantity|count|severity|percentage|rate|notional)', re.I)
+STATUS_HINT = re.compile(r'(?:status|stage|outcome|resolution|(?:^|_)state$)', re.I)
+_PLACE_STATE = re.compile(r'^(?:state|province|county|region_state|state_name)$', re.I)
 TEXT_HINT = re.compile(r'(?:text|notes?|description|comment|feedback|message|name|address|contact_value)', re.I)
 CLASS_HINT = re.compile(r'(?:type|category|segment|channel|role|city|branch|rating|preference|reason)', re.I)
 
@@ -49,7 +53,9 @@ def _is_missing(v: Any) -> bool:
     return v is None or (isinstance(v,str) and v.strip().casefold() in MISSING)
 
 
-_DATE_SHAPE = re.compile(r'^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}(?:[ T]\d{1,2}:\d{2}:\d{2})?$')
+_DATE_SHAPE = re.compile(r'^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}(?:[ T]\d{1,2}:\d{2}(?::\d{2}(?:[.,]\d{1,9})?)?)?(?:Z|[+-]\d{2}:?\d{2})?$'
+                         r'|^\d{1,2}[- ][A-Za-z]{3}[- ]\d{2,4}(?: \d{1,2}:\d{2}(?::\d{2})?)?$')
+_FRACTION_TZ = re.compile(r'(?<=:\d\d)[.,]\d{1,9}|(?<=\d)(?:Z|[+-]\d{2}:?\d{2})$')
 _DATE_CACHE: dict = {}
 
 
@@ -66,10 +72,13 @@ def _date_parse(v: str) -> str | None:
 
 
 def _date_parse_slow(v: str) -> str | None:
+    # Fractions of a second and a time zone (…T10:22:33.123Z, …+05:30) are part of a timestamp.
+    core=_FRACTION_TZ.sub('',v) if (':' in v or v.endswith('Z')) else v
+    suffix=' (with fractions of a second / time zone)' if core!=v else ''
     for fmt in DATE_FORMATS:
         try:
-            d=datetime.strptime(v,fmt)
-            if 1900 <= d.year <= 2100:return fmt
+            d=datetime.strptime(core,fmt)
+            if 1900 <= d.year <= 2100:return fmt+suffix
         except ValueError:pass
     return None
 
@@ -146,11 +155,28 @@ def _semantic_role(name: str, table: str, kind: str, observed: str, uniqueness: 
     s=name.casefold();t=table.casefold(); evidence=[]
     primary_names={'record_id','transaction_id','txn_id','account_id','customer_id','complaint_id','product_id','case_id',
                    'assessment_id','alert_id','ticket_id','survey_id','period_id','cost_center_id'}
-    is_id=bool(ID_HINT.search(s)) or s.endswith(('_ref','_key','_code'))
+    from . import shapes
+    is_id=bool(ID_HINT.search(s)) or s.endswith(('_ref','_key','_code')) or bool(shapes.id_ending(name)) or shapes.is_code(name)
     if s in NOT_KEY_NAMES:
         return 'IDENTIFIER','moderate',['Identifier-like business field; numeric-looking values are not measures']
     if declared_pk:
         return 'PRIMARY_KEY_CANDIDATE','high',['Source declares primary key; still a candidate until verified']
+    # What the end of the name says comes before what the values look like: a version, a level or
+    # a code is never a number to add up, and an email address is never a key.
+    if shapes.is_email(name):
+        return 'TEXT','moderate',['Email address: descriptive text, not a key (even when the name ends in "id")']
+    if shapes.is_flag(name):
+        return 'CLASSIFICATION','moderate',['Yes/No flag (name starts with is/has or ends in flag/indicator); not a measure']
+    if shapes.is_version(name):
+        return 'CLASSIFICATION','moderate',['Version number of a record: read it with its identifier, never add it up']
+    if shapes.is_domain(name):
+        return 'CLASSIFICATION','moderate',['Domain of a reference (which system or kind of record it points to)']
+    if shapes.is_period(name):
+        return 'DATE','high' if observed=='date' else 'moderate',['Reporting period: the table holds one snapshot per period']
+    if shapes.is_level(name) and not shapes.id_ending(name):
+        return 'CLASSIFICATION','moderate',['Hierarchy level or depth; not a measure']
+    if _PLACE_STATE.match(s):
+        return 'CLASSIFICATION','moderate',['A place (state or region), not a status']
     if is_id:
         evidence.append('Identifier-like column name')
         # Parent-table key or generic row surrogate; uniqueness alone is not proof.
@@ -168,6 +194,8 @@ def _semantic_role(name: str, table: str, kind: str, observed: str, uniqueness: 
         root=singular(s.split('_')[0])
         looks_own=(s in ('record_id','id') or
                    (family and root==family and s.endswith(('_id','_key','_uuid','_identifier'))))
+        if shapes.is_code(name) and observed in ('integer','decimal'):
+            evidence.append('A code: numbers here are labels, not quantities')
         if looks_own and uniqueness==1.0 and missing==0 and n>=2:
             evidence.append('Unique and non-null in observed rows')
             return 'PRIMARY_KEY_CANDIDATE','moderate',evidence
@@ -215,9 +243,17 @@ def _column(name: str, values: list[Any], table: str, kind: str, declared_pk: bo
     unique=round(distinct/len(present),4) if present else 0.0
     role,confidence,evidence=_semantic_role(name,table,kind,observed,unique,missing,n,distinct,declared_pk)
     findings=[]
+    numbers_as_text=False
+    if observed=='mixed' and role!='MEASURE' and set(types)<={'integer','decimal','text'}:
+        # identifiers and names where some values happen to be numbers (12345 next to BK_RATES_12):
+        # the column is text; that is not a parsing problem
+        observed='text';numbers_as_text=True
     if missing:findings.append({'code':'missing_values','severity':'warning' if missing/max(n,1)>=.1 else 'info',
                                 'count':missing,'detail':'Missing/null-like cells observed'})
-    if len(types)>1 and not (set(types)<= {'integer','decimal'}):
+    if numbers_as_text:
+        findings.append({'code':'numbers_in_text','severity':'info','count':sum(types.get(t,0) for t in ('integer','decimal')),
+                         'detail':'Some values are numbers and some are text; read as text'})
+    elif len(types)>1 and not (set(types)<= {'integer','decimal'}):
         findings.append({'code':'mixed_types','severity':'warning','count':len(present),
                          'detail':'Mixed observed types; review parsing and business meaning'})
     if whitespace:findings.append({'code':'whitespace','severity':'info','count':whitespace,
@@ -228,6 +264,11 @@ def _column(name: str, values: list[Any], table: str, kind: str, declared_pk: bo
     if len(formats)>1:
         findings.append({'code':'date_format_drift','severity':'warning','count':sum(formats.values()),
                          'detail':'Multiple observed date formats'})
+    if formats and role=='DATE':
+        fmt=formats.most_common(1)[0][0]
+        if not (fmt.startswith('%Y-%m-%d')):
+            findings.append({'code':'date_as_text','severity':'info','count':sum(formats.values()),
+                             'detail':'Dates written as %s; add the data fix "Standardise dates" to compare and filter by date' % _fmt_label(fmt)})
     if (name.casefold() in ('record_id','id') or declared_pk) and (unique<1.0 or missing):
         findings.append({'code':'key_uniqueness_violation','severity':'warning',
                          'count':len(present)-distinct+missing,'detail':'Observed duplicate or null values in a key-like column'})
@@ -235,7 +276,7 @@ def _column(name: str, values: list[Any], table: str, kind: str, declared_pk: bo
     if nums:
         nums.sort()
         numeric_stats={'min':nums[0],'max':nums[-1],'median':statistics.median(nums)}
-        if len(nums)>=8:
+        if len(nums)>=8 and role=='MEASURE':     # outliers only mean something for quantities
             q=statistics.quantiles(nums,n=4,method='inclusive');lo=q[0]-1.5*(q[2]-q[0]);hi=q[2]+1.5*(q[2]-q[0]);out=sum(v<lo or v>hi for v in nums)
             numeric_stats['iqr_outlier_candidates']=out
             if out:findings.append({'code':'numeric_outlier_candidate','severity':'info','count':out,
@@ -247,7 +288,12 @@ def _column(name: str, values: list[Any], table: str, kind: str, declared_pk: bo
         'distinct_pct':round(100*unique,2),'normalized_distinct_count':norm_distinct,
         'duplicate_value_count':len(present)-distinct,'leading_trailing_whitespace_count':whitespace,
         'date_formats':dict(formats),'numeric_stats':numeric_stats,'findings':findings,
-        'declared_primary_key':declared_pk}
+        'declared_primary_key':declared_pk,'counts_scope':'sample'}
+
+
+def _fmt_label(fmt):
+    out=fmt.replace('%Y','YYYY').replace('%y','YY').replace('%m','MM').replace('%d','DD').replace('%b','Mon')
+    return out.replace('%H','hh').replace('%M','mm').replace('%S','ss')
 
 
 FINGERPRINT_ALGORITHM = 'sha256-content-v1'
@@ -420,7 +466,27 @@ def profile_table(project: Path, connection: dict, table: str, *, limit: int=SAM
     fp=_with_fixes(project,connection,table,_fingerprint(source,kind,table))
     cols=[_column(name,[row[i] for row in rows],table,kind,
                   name in meta.get('declared_primary_keys',set())) for i,name in enumerate(header)]
+    total_rows=len(rows) if meta['sample_complete'] else None
+    counts_scope='all_rows' if meta['sample_complete'] else 'sample'
+    full={}
+    if not meta['sample_complete']:
+        # Distinct values and empty cells are counted on every row of the prepared copy, so a key
+        # is not judged from the first rows of a large table.
+        try:
+            full,total_rows=_full_counts(project,connection,table,header)
+            if full:counts_scope='all_rows' if len(full)==len(header) else 'partial'
+        except Exception:
+            full={}
+    for c in cols:
+        f=full.get(c['name'])
+        if f:_apply_full(c,f,total_rows)
+    if meta['sample_complete']:
+        for c in cols:c['counts_scope']='all_rows'
     _refine_key_roles(table,cols)
+    masks={name:{j for j,row in enumerate(rows) if _is_missing(row[i])} for i,name in enumerate(header)}
+    from . import shapes
+    groups=shapes.groups(cols,masks,len(rows))
+    _refine_shapes(project,connection,table,cols,groups,total_rows)
     # Hash row content only in memory for duplicate counts; never persist rows.
     hashes=Counter(hashlib.sha256(repr(tuple(str(v) if v is not None else None for v in row)).encode('utf-8')).digest() for row in rows)
     duplicates=sum(count-1 for count in hashes.values() if count>1)
@@ -437,11 +503,113 @@ def profile_table(project: Path, connection: dict, table: str, *, limit: int=SAM
     warning_count=sum(1 for col in cols for issue in col['findings'] if issue['severity']=='warning')+sum(1 for i in issues if i['severity']=='warning')
     return {'profile_version':VERSION,'connection_id':connection['id'],'schema':'files' if kind=='csv_folder' else 'main',
         'table':table,'source_kind':kind,'sample_rows':len(rows),'sample_limit':limit,
+        'table_rows':total_rows,'counts_scope':counts_scope,'groups':groups,
         'sample_complete':meta['sample_complete'],'sample_strategy':'first_n_rows',
         'fingerprint':fp,'profiled_at':_now(),'columns':cols,'column_count':len(cols),
         'duplicate_rows_observed':duplicates,'table_findings':issues,
         'warning_count':warning_count,'approval_status':'unverified',
         'disclaimer':'Sample-based technical evidence and heuristic semantic role candidates; no relationship, business definition or key is approved.'}
+
+
+FULL_COUNT_SECONDS = 240     # time allowed for whole-table counts of one table; the rest stay sample counts
+
+
+def _full_counts(project, connection, table, header):
+    """{column: (non_missing, distinct)} on every row of the prepared copy, and the row count."""
+    import time
+    from binggio import prepared
+    path=prepared.ensure(project,connection,table)
+    q=_quote_identifier;out={};started=time.time()
+    miss=lambda c:"(%s IS NULL OR trim(%s)='' OR lower(trim(%s)) IN ('null','none','n/a','na','nan','?'))" % (c,c,c)
+    with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)) as db:
+        total=db.execute('SELECT COUNT(*) FROM t').fetchone()[0]
+        cols=[r[1] for r in db.execute('PRAGMA table_info(t)')]
+        names=[h for h in header if h in cols]
+        for i in range(0,len(names),12):
+            if time.time()-started>FULL_COUNT_SECONDS:break
+            part=names[i:i+12]
+            sql=', '.join('SUM(CASE WHEN %s THEN 0 ELSE 1 END), COUNT(DISTINCT CASE WHEN %s THEN NULL ELSE %s END)' % (miss(q(c)),miss(q(c)),q(c)) for c in part)
+            r=db.execute('SELECT '+sql+' FROM t').fetchone()
+            for j,c in enumerate(part):out[c]=(r[2*j] or 0,r[2*j+1] or 0)
+    return out,total
+
+
+def _apply_full(c,f,total):
+    present,distinct=f
+    missing=total-present
+    c.update({'observed_rows':total,'non_null_count':present,'missing_count':missing,'missing_pct':round(100*missing/max(total,1),2),
+              'distinct_count':distinct,'distinct_pct':round(100*distinct/present,2) if present else 0.0,
+              'duplicate_value_count':present-distinct,'counts_scope':'all_rows'})
+    for x in c['findings']:
+        if x['code']=='missing_values':
+            x['count']=missing;x['severity']='warning' if missing/max(total,1)>=.1 else 'info'
+    if not missing:c['findings']=[x for x in c['findings'] if x['code']!='missing_values']
+
+
+def _refine_shapes(project,connection,table,cols,groups,total_rows):
+    """Table-level suggestions from the groups: codes kept with their names are labels, the
+    numbered levels of a hierarchy are not measures, the table's own identifier is named even when
+    it repeats (and why), and columns with no information are set aside."""
+    from . import shapes
+    by={c['name']:c for c in cols}
+    for g in groups:
+        for n in g['columns']:
+            by[n].setdefault('groups',[]).append(g['kind']+':'+g['name'])
+        if g['kind']=='code_name':
+            code=by[g['columns'][0]]
+            if code['semantic_role_candidate'] not in ('PRIMARY_KEY_CANDIDATE',):
+                code['semantic_role_candidate'],code['role_confidence_label']='CLASSIFICATION','moderate'
+                code['role_evidence']=['A code kept with its name (%s): a label to group by, not a quantity' % g['columns'][1]]
+        if g['kind']=='hierarchy':
+            for n in g['columns']:
+                c=by[n]
+                if c['semantic_role_candidate']=='MEASURE':
+                    c['semantic_role_candidate'],c['role_confidence_label']='CLASSIFICATION','moderate'
+                    c['role_evidence']=['Part of a hierarchy path (%s); not a quantity' % g['name']]
+    # short code lists (city, currency, region codes) are labels to group by
+    for c in cols:
+        if shapes.is_code(c['name']) and c['semantic_role_candidate']=='FOREIGN_KEY_CANDIDATE' and 0<c['distinct_count']<=30:
+            c['semantic_role_candidate'],c['role_confidence_label']='CLASSIFICATION','moderate'
+            c['role_evidence']=['A short list of codes (%d different values): a label to group by' % c['distinct_count']]
+    # no information: empty on every row, or one value only
+    for c in cols:
+        if c['non_null_count']==0 and c['observed_rows']>0:
+            c['no_information']='empty'
+        elif c['distinct_count']==1 and c['observed_rows']>1 and not shapes.is_domain(c['name']):
+            c['no_information']='one_value'
+    # the table's own identifier, when its name says so but it repeats
+    if any(c['semantic_role_candidate']=='PRIMARY_KEY_CANDIDATE' for c in cols):return
+    own=next((c for c in cols if shapes.id_ending(c['name']) and shapes.subject(c['name'])=='' and c['missing_count']==0),None)
+    if own is None:
+        ids=[c for c in cols if shapes.id_ending(c['name']) and c['missing_count']==0 and c['semantic_role_candidate'] in
+             ('FOREIGN_KEY_CANDIDATE','IDENTIFIER') and not c.get('no_information')]
+        own=max(ids,key=lambda c:(c['distinct_count'],-cols.index(c)),default=None)
+    if own is None or own['distinct_count']<2:return
+    period=next((c['name'] for c in cols if shapes.is_period(c['name'])),None)
+    version=next((g['version_column'] for g in groups if g['kind']=='reference' and g.get('id_column')==own['name']),None)
+    why=[]
+    from binggio import prepared
+    for extra in [x for x in (period,version) if x]+([[period,version]] if period and version else []):
+        parts=[own['name']]+(extra if isinstance(extra,list) else [extra])
+        try:k=prepared.key_check(project,connection,table,parts)
+        except Exception:break
+        if k['unique']:
+            why=parts;break
+    if own['distinct_count']==own['non_null_count']:
+        if own['semantic_role_candidate']!='PRIMARY_KEY_CANDIDATE' and own['counts_scope']=='all_rows':
+            own['semantic_role_candidate'],own['role_confidence_label']='PRIMARY_KEY_CANDIDATE','moderate'
+            own['role_evidence']=['Identifier-like column name','Unique and non-null on every row',
+                                  'Chosen as the table\'s own key (the identifier with the most different values)']
+        return
+    own['semantic_role_candidate'],own['role_confidence_label']='IDENTIFIER','moderate'
+    ev=['The identifier of this table\'s rows (by its name and position), but it repeats: %s of %s rows' % (
+        '{:,}'.format(own['non_null_count']-own['distinct_count']),'{:,}'.format(own['non_null_count']))]
+    if why:
+        ev.append('%s together are unique on every row: one row per %s' % (' + '.join(why),' per '.join(why)))
+    ev.append('A master table (Review > Masters) gives it one row per %s to link to' % own['name'])
+    own['role_evidence']=ev
+    own['own_identifier']=True
+    own['unique_with']=why
 
 
 def _with_fixes(project, connection, table, fp):

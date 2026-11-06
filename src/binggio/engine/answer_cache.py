@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 MAX_ROWS = 50_000_000       # rows per table an answer may read through the cache
 _LOCK = threading.Lock()
 _ISO = None

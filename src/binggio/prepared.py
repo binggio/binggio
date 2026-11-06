@@ -51,6 +51,7 @@ KINDS = {
     'date': 'Read dates in a stated format',
     'combine': 'Combine columns into a new key column',
     'dedupe': 'Keep one row for each key value',
+    'add_date': 'Add a date column (YYYY-MM-DD) read from this column; the column itself is kept',
 }
 TABLE_KINDS = ('combine', 'dedupe')
 DATE_INPUTS = ('%d/%m/%Y', '%m/%d/%Y', '%d-%m-%Y', '%m-%d-%Y', '%Y/%m/%d', '%d.%m.%Y', '%Y%m%d', '%d-%b-%Y', '%d %b %Y',
@@ -112,6 +113,7 @@ def describe(f):
     if k == 'date': return 'Read %s as dates in the form %s' % (c, p.get('format'))
     if k == 'combine': return 'New column %s = %s' % (c, (' + "%s" + ' % p.get('sep', '|')).join(p.get('columns', [])))
     if k == 'dedupe': return 'Keep the first row for each %s' % ' + '.join(p.get('columns', []))
+    if k == 'add_date': return 'New column %s = the date in %s (YYYY-MM-DD)%s' % (p.get('name'), c, ', read as %s' % p['format'] if p.get('format') else '')
     return k
 
 
@@ -216,6 +218,11 @@ def _clean_params(kind, column, params, header):
     if kind == 'date':
         if p.get('format') not in DATE_INPUTS: raise FixError('Choose the date form the column uses')
         return column, {'format': p['format']}
+    if kind == 'add_date':
+        name = column + '_date'
+        if name.casefold() in {c.casefold() for c in cols}: raise FixError('There is already a column called %s' % name)
+        if p.get('format') and p['format'] not in DATE_INPUTS: raise FixError('Choose the date form the column uses')
+        return column, {'name': name, 'format': p.get('format') or ''}
     return column, {}
 
 
@@ -308,6 +315,32 @@ def apply_value(kind, params, v):
         except ValueError: return v
         return d.strftime('%Y-%m-%d %H:%M:%S' if '%H' in params['format'] else '%Y-%m-%d')
     return v
+
+
+_ISO_START = re.compile(r'^\d{4}-\d{2}-\d{2}')
+
+
+_AMBIGUOUS = re.compile(r'^(\d{1,2})[/.-](\d{1,2})[/.-]\d{2,4}')
+
+
+def iso_date(v, fmt=None):
+    """YYYY-MM-DD from any date or timestamp form profiling recognises (2026-01-05T10:22:33.123Z,
+    05-Jan-2026, 25/01/2026 ...); None when the value is not a recognised date. Without a stated
+    form, a date such as 05/01/2026 (5 January or 1 May) is not guessed: it stays unread."""
+    if _is_missing(v): return None
+    s = str(v).strip()
+    if fmt:
+        try: return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError: return None
+    if _ISO_START.match(s): return s[:10]
+    m = _AMBIGUOUS.match(s)
+    if m and int(m.group(1)) <= 12 and int(m.group(2)) <= 12 and m.group(1) != m.group(2): return None
+    from binggio.profiling.profiler import _date_parse_slow, _FRACTION_TZ
+    fmt = _date_parse_slow(s)
+    if not fmt: return None
+    core = _FRACTION_TZ.sub('', s) if (':' in s or s.endswith('Z')) else s
+    try: return datetime.strptime(core, fmt.split(' (')[0]).date().isoformat()
+    except ValueError: return None
 
 
 # ====================================================================== reading the source
@@ -473,6 +506,7 @@ def _register(db):
     db.create_function('bn_fix', 3, lambda k, p, v: apply_value(k, json.loads(p), v), deterministic=True)
     db.create_function('bn_num', 1, _num, deterministic=True)
     db.create_function('bn_missing', 1, lambda v: 1 if _is_missing(v) else 0, deterministic=True)
+    db.create_function('bn_dateonly', 2, lambda v, f: iso_date(v, f or None), deterministic=True)
 
     def combine(sep, *vals):
         if any(_is_missing(v) for v in vals): return None
@@ -491,6 +525,9 @@ def _apply_fixes(db, header, steps):
         if k == 'combine':
             db.execute('ALTER TABLE t ADD COLUMN %s' % q(c))
             db.execute('UPDATE t SET %s = bn_combine(?, %s)' % (q(c), ', '.join(q(x) for x in p['columns'])), (p['sep'],))
+        elif k == 'add_date':
+            db.execute('ALTER TABLE t ADD COLUMN %s' % q(p['name']))
+            db.execute('UPDATE t SET %s = bn_dateonly(%s, ?)' % (q(p['name']), q(c)), (p.get('format') or '',))
         elif k == 'dedupe':
             keys = ', '.join(q(x) for x in p['columns'])
             db.execute('DELETE FROM t WHERE rowid NOT IN (SELECT MIN(rowid) FROM t GROUP BY %s)' % keys)
@@ -536,6 +573,7 @@ def header_with_fixes(root, conn, table):
             header = [c[1] for c in s.execute('PRAGMA table_info(%s)' % _quote_identifier(table)).fetchall()]
     for f in fixes_for(root, conn['id'], table):
         if f['kind'] == 'combine': header.append(f['column'])
+        elif f['kind'] == 'add_date': header.append(f['params']['name'])
     return header
 
 
@@ -626,6 +664,17 @@ def preview_fix(root, conn, table, kind, column, params, n=5000):
         present = [v for v in vals if v is not None]
         out.update({'examples': [{'after': v} for v in present[:8]], 'missing': len(vals) - len(present),
                     'duplicates_in_checked_rows': len(present) - len(set(present))})
+        return out
+    if kind == 'add_date':
+        i = h.index(column)
+        vals = [(r[i], iso_date(r[i], params.get('format') or None)) for r in rows if not _is_missing(r[i])]
+        seen = []
+        for b, a in vals:
+            if (b, a) not in seen and len(seen) < 8: seen.append((b, a))
+        bad = sum(1 for _, a in vals if a is None)
+        out.update({'examples': [{'before': b, 'after': a} for b, a in seen], 'unreadable': bad, 'new_column': params['name']})
+        if bad: out['warning'] = ('%s value(s) could not be read as dates and would be empty in %s. If they look like 05/01/2026, '
+                                  'choose the date form (day or month first).' % ('{:,}'.format(bad), params['name']))
         return out
     if kind == 'dedupe':
         idx = [h.index(c) for c in params['columns']]

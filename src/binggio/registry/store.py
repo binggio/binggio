@@ -111,14 +111,21 @@ _FORCE_REL_RULE=[None]
 # Heuristic suggestions are not evidence: improving the role suggestions must not make
 # a person's approval stale. Approvals bind to the observed column and the data's content.
 HEURISTIC_FIELDS=('semantic_role_candidate','role_confidence_label','role_evidence')
-SIGNATURE_VERSION=3
+SIGNATURE_VERSION=4
 _LEGACY_COLUMN_SIGNATURE=[False]
 
 def _column(project,cid,table,column):
     p=_profile(project,cid,table)
     col=next((c for c in p['columns'] if c['name']==column),None)
     if col is None:raise ReviewConflict('Column no longer exists in the current profile')
-    evidence=col if _LEGACY_COLUMN_SIGNATURE[0] else {k:v for k,v in col.items() if k not in HEURISTIC_FIELDS}
+    rule=_relationship_rule(project)
+    if _LEGACY_COLUMN_SIGNATURE[0]:evidence=col
+    elif rule<4:evidence={k:v for k,v in col.items() if k not in HEURISTIC_FIELDS}
+    else:
+        # v4 (0.1.7): the column and the table's content (its fingerprint, data fixes included).
+        # Counts, types and findings are derived from that content by Binggio's profiler, so a better
+        # profiler never makes an approval stale; changed data or fixes still do.
+        evidence={'name':col['name']}
     signature=_sha({'connection_id':cid,'table':table,'column':evidence,'fingerprint':p['fingerprint']})
     return col,signature
 

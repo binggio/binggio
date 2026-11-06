@@ -144,7 +144,18 @@ def summary(project: Path) -> dict:
         'description':'Technical profiling only; semantic roles are unverified candidates and metrics may be sample-limited.'}
 
 
+_MIGRATING=[False]
+
+
 def run_all(project: Path, *, force: bool=False,limit: int=SAMPLE_LIMIT) -> dict:
+    if not _MIGRATING[0]:
+        # An older workspace is moved to the current evidence rules BEFORE its profiles are rebuilt:
+        # the migration checks each approval against the profiles it was made on.
+        from binggio.registry import migrate
+        if migrate.needs_migration(project):
+            _MIGRATING[0]=True
+            try:migrate.migrate(project)
+            finally:_MIGRATING[0]=False
     tables=catalog.list_tables(project,limit=5000)
     if len(tables)>2000:raise ConnectionErrorSafe('Profiling is limited to 2000 tables per workspace')
     passed=0;cached=0;failures=[]

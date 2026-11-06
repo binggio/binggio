@@ -236,20 +236,23 @@ def api(app: App, method, path, q, body):
         cid, pw = body['connection'], body.get('password') or None
         def run(step):
             step(0); r = ws.refresh(cid, password=pw)
-            step(1); ws.profile()
-            step(2); _prepare(ws, step, 2)
-            step(3); ws.discover()
+            step(1); _prepare(ws, step, 1)
+            step(2); ws.profile()
+            step(3); _rebuild_masters(ws, step, 3)
+            step(4); ws.discover()
             return r
-        return app.start_job('refresh', ['Reading the source again', 'Profiling (your data fixes are applied again)', 'Preparing tables for fast reading', 'Finding relationships'], run)
+        return app.start_job('refresh', ['Reading the source again', 'Preparing tables for fast reading', 'Profiling every row (your data fixes are applied again)',
+                                         'Rebuilding approved masters', 'Finding relationships'], run)
     if path == '/api/sources/test' and method == 'POST':
         return _test_database(body)
     if path == '/api/pipeline' and method == 'POST':
         def run(step):
-            step(0); p = ws.profile(force=bool(body.get('force')))
-            step(1); _prepare(ws, step, 1)
-            step(2); d = ws.discover()
+            step(0); _prepare(ws, step, 0)
+            step(1); p = ws.profile(force=bool(body.get('force')))
+            step(2); _rebuild_masters(ws, step, 2)
+            step(3); d = ws.discover()
             return {'profile': {k: p[k] for k in ('total', 'profiled_or_cached') if k in p}, 'failures': p.get('failures'), 'discover': d}
-        return app.start_job('pipeline', ['Profiling', 'Preparing tables for fast reading', 'Finding relationships'], run)
+        return app.start_job('pipeline', ['Preparing tables for fast reading', 'Profiling every row', 'Rebuilding approved masters', 'Finding relationships'], run)
 
     if path == '/api/tables':
         from binggio.profiling import store as profiles
@@ -275,11 +278,16 @@ def api(app: App, method, path, q, body):
                            status=q.get('status') or 'all')
         text = (q.get('q') or '').lower()
         if text: items = [x for x in items if text in (x['table'] + ' ' + x['column']).lower()]
+        hidden = 0
+        if q.get('all') != '1':
+            empty = _no_information(root)
+            keep = [x for x in items if (x['connection_id'], x['table'], x['column']) not in empty or x['effective_status'] == 'approved']
+            hidden = len(items) - len(keep); items = keep
         total = len(items); off = int(q.get('offset') or 0); lim = int(q.get('limit') or 200)
         return {'total': total, 'items': [{'connection': x['connection_id'], 'table': x['table'], 'column': x['column'],
                                            'suggested': x['candidate_role'], 'evidence': _plain(x['role_evidence']),
                                            'status': x['effective_status'], 'decision': _decision(x['decision'])}
-                                          for x in items[off:off + lim]], 'roles': sorted(store.ROLES)}
+                                          for x in items[off:off + lim]], 'roles': sorted(store.ROLES), 'hidden_no_information': hidden}
     if path == '/api/review/roles' and method == 'POST':
         return _decide_roles(root, body)
     if path == '/api/review/relationships' and method == 'GET':
@@ -372,6 +380,18 @@ def api(app: App, method, path, q, body):
     if path == '/api/links' and method == 'POST':
         return _link_action(root, body)
 
+    if path == '/api/masters' and method == 'GET':
+        return _masters_info(root)
+    if path == '/api/masters' and method == 'POST':
+        return _master_action(app, ws, body)
+    if path == '/api/masters/snapshot' and method == 'POST':
+        from binggio import masters
+        try: return masters.decide_snapshot(root, body['connection'], body['table'], body.get('period_column') or '', body['action'], _by(body), body.get('note'))
+        except masters.MasterError as e: raise ApiError(str(e))
+    if path == '/api/masters/check' and method == 'POST':
+        from binggio import masters
+        try: return masters.check_member(root, body['member'], body.get('against'), body.get('master'))
+        except masters.MasterError as e: raise ApiError(str(e))
     if path == '/api/story':
         from binggio import story
         cid = q.get('connection') or (sorted(ws.connections(), key=lambda c: c['created_at'])[-1]['id'] if ws.connections() else None)
@@ -527,13 +547,23 @@ def _add_source(app, ws, b):
 
     def run(step):
         step(0); c = add()
-        step(1); p = ws.profile()
-        step(2); _prepare(ws, step, 2)
+        step(1); _prepare(ws, step, 1)
+        step(2); p = ws.profile()
         step(3); d = ws.discover()
         return {'connection': c['id'], 'tables': c.get('table_count'), 'notes': c.get('notes', []),
                 'profile_failures': p.get('failures'), 'candidate_relationships': d.get('candidate_edges'),
                 'skipped_tables': d.get('skipped_tables', [])}
-    return app.start_job('add', ['Copying the data in', 'Profiling every column', 'Preparing tables for fast reading', 'Finding relationships'], run)
+    return app.start_job('add', ['Copying the data in', 'Preparing tables for fast reading', 'Profiling every column', 'Finding relationships'], run)
+
+
+def _rebuild_masters(ws, step, i):
+    """Approved masters are rebuilt from the refreshed data; a master whose content changed makes the
+    approvals built on it stale, like any changed source."""
+    from binggio import masters
+    if not masters.approved(ws.root): return None
+    r = masters.build(ws.root, progress=lambda k, n, t: step(i, 'running', '%d of %d: %s' % (k + 1, n, t)))
+    ws.profile()
+    return r
 
 
 def _prepare(ws, step, i):
@@ -579,7 +609,9 @@ def _table_detail(root, cid, table):
     for c in (prof or {}).get('columns', []):
         r = roles.get(c['name'], {})
         d = r.get('decision')
-        cols.append({'name': c['name'], 'type': c.get('observed_type'), 'distinct': c.get('distinct_count'),
+        cols.append({'no_information': c.get('no_information'), 'groups': c.get('groups') or [], 'counts_scope': c.get('counts_scope'),
+                     'own_identifier': c.get('own_identifier'), 'date_formats': c.get('date_formats') or {},
+                     'name': c['name'], 'type': c.get('observed_type'), 'distinct': c.get('distinct_count'),
                      'missing_pct': c.get('missing_pct'), 'rows': c.get('observed_rows'), 'findings': c.get('findings') or [],
                      'numeric': c.get('numeric_stats'), 'suggested': r.get('candidate_role'), 'evidence': _plain(r.get('role_evidence')),
                      'status': r.get('effective_status'), 'approved_role': ((d or {}).get('approved') or {}).get('role'),
@@ -588,7 +620,9 @@ def _table_detail(root, cid, table):
              if (e['child_connection_id'], e['child_table']) == (cid, table) or (e['parent_connection_id'], e['parent_table']) == (cid, table)]
     return {'connection': cid, 'table': table, 'profiled': bool(prof), 'stale': (prof or {}).get('stale'),
             'sample_rows': (prof or {}).get('sample_rows'), 'sample_complete': (prof or {}).get('sample_complete'),
-            'findings': (prof or {}).get('table_findings'), 'columns': cols,
+            'findings': (prof or {}).get('table_findings'), 'columns': cols, 'groups': (prof or {}).get('groups') or [],
+            'table_rows': (prof or {}).get('table_rows'), 'counts_scope': (prof or {}).get('counts_scope'),
+            'master': _master_of(root, cid, table),
             'preview': _preview(preview), 'fixes': [{'id': f['id'], 'label': f['label'], 'kind': f['kind'], 'column': f['column']} for f in fixes],
             'links': links}
 
@@ -712,8 +746,11 @@ def _graph(root):
     from binggio.profiling import store as profiles
     from binggio.catalog import catalog
     names = {c['id']: c['name'] for c in catalog.list_connections(root)}
+    from binggio import masters
+    mc = masters.master_connection(root, create=False)
     nodes = [{'id': t['connection_id'] + '::' + t['table'], 'table': t['table'], 'connection': t['connection_id'],
-              'source': names.get(t['connection_id'], t['connection_id']), 'status': t['status']}
+              'source': names.get(t['connection_id'], t['connection_id']), 'status': t['status'],
+              'master': bool(mc and t['connection_id'] == mc['id'])}
              for t in profiles.list_profiles(root)]
     rels = store.list_relationships(root, limit=10 ** 7)['items']
     edges = []
@@ -1221,3 +1258,76 @@ def _link_action(root, b):
             if not isinstance(e, _expected_errors()): raise
             out['approve_error'] = str(e)
     return out
+
+
+# ---------------------------------------------------------------------- masters (0.1.7)
+def _no_information(root):
+    from binggio.profiling import store as profiles
+    out = set()
+    for t in profiles.list_profiles(root):
+        p = profiles.get_table(root, t['connection_id'], t['table'])
+        for c in (p or {}).get('columns', []):
+            if c.get('no_information'): out.add((t['connection_id'], t['table'], c['name']))
+    return out
+
+
+def _master_of(root, cid, table):
+    from binggio import masters
+    mc = masters.master_connection(root, create=False)
+    if not mc or mc['id'] != cid: return None
+    m = next((x for x in masters.approved(root) if masters.table_name(x) == table), None)
+    return {'id': m['id'], 'name': m['name'], 'kind': m['kind'], 'approved_by': m['actor'], 'note': m['note']} if m else {'name': table}
+
+
+def _masters_info(root):
+    from binggio import masters
+    from binggio.registry import store
+    rec = masters.recommend(root)
+    rels = store.list_relationships(root, limit=10 ** 7)['items']
+    mc = masters.master_connection(root, create=False)
+    out = []
+    for m in masters.approved(root):
+        tname = masters.table_name(m)
+        mine = [r for r in rels if r['parent_table'] == tname]
+        rows = None
+        if mc:
+            f = Path(root) / 'data' / mc['source_path'] / (tname + '.csv')
+            if f.exists():
+                with open(f, encoding='utf-8') as fh: rows = max(0, sum(1 for _ in fh) - 1)
+        out.append({**m, 'table': tname, 'connection': mc['id'] if mc else None, 'rows': rows,
+                    'links': {'approved': sum(r['effective_status'] == 'approved' for r in mine), 'total': len(mine),
+                              'pending': sum(r['effective_status'] in ('pending', 'candidate', 'proposed') for r in mine)}})
+    return {'proposals': rec['masters'], 'calendar': rec['calendar'], 'snapshots': rec['snapshots'], 'approved': out,
+            'rejected': [m for m in rec['decided'] if m['status'] == 'rejected']}
+
+
+def _master_action(app, ws, b):
+    from binggio import masters
+    from binggio.registry import store
+    root = ws.root
+    act, by, note = b.get('action'), _by(b), (b.get('note') or '').strip()
+    try:
+        m = masters.decide(root, act, by, note, master_id=b.get('id') or None, kind=b.get('kind') or 'entity', spec=b.get('spec'))
+    except masters.MasterError as e:
+        raise ApiError(str(e))
+    if act == 'withdraw':
+        # links to a withdrawn master are revoked: its table is removed at the next build
+        tname = masters.table_name(m)
+        for r in store.list_relationships(root, limit=10 ** 7)['items']:
+            if r['parent_table'] == tname and r['effective_status'] == 'approved':
+                art = store.get_artifact(root, 'relationship:' + r['edge_id']) or {}
+                store.decide_relationship(root, r['edge_id'], action='revoke', actor=by, note='Master %s withdrawn: %s' % (m['name'], note),
+                                          expected_revision=art.get('revision', 0))
+        masters.build(root)
+        return {'master': m}
+    if act != 'approve': return {'master': m}
+    approve_links = bool(b.get('approve_links'))
+
+    def run(step):
+        step(0); built = masters.build(root, progress=lambda k, n, t: step(0, 'running', '%d of %d: %s' % (k + 1, n, t)))
+        step(1); ws.profile()
+        step(2); res = masters.link_members(root, m, by, note, approve=approve_links)
+        return {'built': built['built'], 'links': res}
+    return {'master': m, 'job': app.start_job('master', ['Building the master table', 'Profiling it', 'Linking the member columns' +
+                                                         (' and approving the links' if approve_links else ' (for review)')], run)}
+
