@@ -53,7 +53,9 @@ def check(root, child, parent):
     if tuple(child[:2]) == tuple(parent[:2]): raise LinkError('Choose two different tables')
     cconn = _check_side(root, child, 'Child'); pconn = _check_side(root, parent, 'Parent')
     cpath = prepared.ensure(root, cconn, child[1]); ppath = prepared.ensure(root, pconn, parent[1])
-    db = sqlite3.connect(':memory:')
+    # uri=True: the read-only file: addresses below are only understood when URIs are enabled
+    # (on by default in some Linux builds of SQLite, off in the Windows build of Python)
+    db = sqlite3.connect('file::memory:', uri=True)
     try:
         db.create_function('bn_norm', 1, _norm, deterministic=True)
         db.execute('ATTACH DATABASE ? AS c', (cpath.as_uri() + '?mode=ro',))
