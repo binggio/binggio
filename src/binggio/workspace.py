@@ -221,8 +221,8 @@ class Workspace:
         return catalog.list_connections(self.root)
 
     # ------------------------------------------------------------ pipeline
-    def profile(self, force=False):
-        return profiles.run_all(self.root, force=force)
+    def profile(self, force=False, progress=None):
+        return profiles.run_all(self.root, force=force, progress=progress)
 
     def discover(self):
         """Find candidate relationships. An older workspace is first moved to the current evidence

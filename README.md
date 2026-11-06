@@ -84,6 +84,9 @@ Built for data stewards:
   on every refresh, sit at the centre of the relationship map, and every member column links to
   them many-to-one. Gaps are shown (ids used in a table but missing from the system of record),
   never hidden.
+- **Recommended data fixes.** From the profiles, Binggio recommends fixes (stray spaces, case
+  variants, numbers written as text, placeholders such as "-", dates written as text, keys written
+  differently from their master), each with its evidence and a preview. A person approves them.
 - **Snapshot tables.** Once a person marks a table as one copy per reporting period, a total or
   count across periods is refused: an answer needs one period or a result per period.
 - **Profiles on every row, read the way enterprise names are written.** Distinct and empty
@@ -96,6 +99,8 @@ It runs on this computer only (127.0.0.1), needs no internet, and adds no depend
 carries a random session token so other web sites cannot use it. Database passwords and model keys
 typed into it are kept in memory only, never written to disk. The sample bank includes ten
 prepared questions that run without a model key. Options: `--port 8800`, `--no-browser`.
+Tables are prepared and profiled at the same time, as many as the computer has processor cores;
+set `BINGGIO_WORKERS=4` to use fewer (or `1` for one at a time).
 
 ## Use Binggio from AI agents (MCP)
 

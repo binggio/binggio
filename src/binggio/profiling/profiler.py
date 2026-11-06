@@ -25,7 +25,7 @@ from binggio.catalog.connectors import (ConnectionErrorSafe, MAX_CSV_BYTES,
     MAX_COLUMNS, _quote_identifier, _readonly, _unwrapped_row,
     list_sqlite_tables, resolve_source)
 
-VERSION = '5.2.0'
+VERSION = '5.3.0'
 SAMPLE_LIMIT = 2500
 MISSING = {'', 'null', 'none', 'n/a', 'na', 'nan', '?'}
 DATE_FORMATS = ('%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M',
@@ -33,6 +33,9 @@ DATE_FORMATS = ('%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:
                 '%d/%m/%Y %H:%M:%S', '%d/%m/%Y %H:%M', '%d.%m.%Y')
 NUMERIC = re.compile(r'^[+-]?(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$|^[+-]?\.\d+$')
 INTEGER = re.compile(r'^[+-]?\d+$')
+# spellings that mean "no value" but are not already read as empty (MISSING)
+PLACEHOLDERS = {'-', '--', '---', '#n/a', 'n.a.', 'n.a', 'unknown', 'not available', 'not applicable', 'nil', '(blank)', '(null)', '#null!', 'tbd', 'missing'}
+_FORMATTED_NUMBER = re.compile(r'^\(?[-+]?\s*(?:[$€£₹¥]|usd|eur|gbp|inr|rs\.?)?\s*\d[\d,]*(?:\.\d+)?\s*(?:%|[a-z]{1,3}|usd|eur|gbp|inr)?\)?$', re.I)
 ID_HINT = re.compile(r'(?:^|_)(?:id|key|ref|code|uuid|identifier|no|num|nbr|number)$|(?:^|_)(?:id|key|ref|code|uuid)(?:_|$)|[a-z](?:Id|ID|No|Num|Number)$'
                      # well-known business identifiers whose names do not say "id"
                      r'|(?:^|_)(?:vin|sku|imei|isin|cusip|lei|gtin|ean|upc|chassis_no|serial_no|serial_number)$', re.I)
@@ -225,10 +228,13 @@ def _column(name: str, values: list[Any], table: str, kind: str, declared_pk: bo
     n=len(values)
     present=[v for v in values if not _is_missing(v)]
     missing=n-len(present)
-    types=Counter(); formats=Counter(); whitespace=0; norm=Counter(); raw=Counter();nums=[]
+    types=Counter(); formats=Counter(); whitespace=0; norm=Counter(); raw=Counter();nums=[];formatted=0;placeholders=Counter()
     for v in present:
         s=str(v)
         if s!=s.strip():whitespace+=1
+        t=s.strip()
+        if t.casefold() in PLACEHOLDERS:placeholders[t]+=1
+        elif _FORMATTED_NUMBER.fullmatch(t) and not NUMERIC.fullmatch(t):formatted+=1
         raw[s]+=1;norm[_normal(v)]+=1
         typ,fmt=_type_of(v);types[typ]+=1
         if fmt:formats[fmt]+=1
@@ -258,6 +264,13 @@ def _column(name: str, values: list[Any], table: str, kind: str, declared_pk: bo
                          'detail':'Mixed observed types; review parsing and business meaning'})
     if whitespace:findings.append({'code':'whitespace','severity':'info','count':whitespace,
                                     'detail':'Values with leading/trailing whitespace'})
+    if formatted and formatted>=0.5*max(1,len(present)-sum(placeholders.values())):
+        findings.append({'code':'formatted_numbers','severity':'warning','count':formatted,
+                         'detail':'Numbers written with currency signs, separators, units or brackets ($1,234.50, 12 kg, (500)); read as text'})
+    if placeholders:
+        # only the fixed list of placeholder spellings is kept, never other values
+        findings.append({'code':'placeholder_values','severity':'info','count':sum(placeholders.values()),
+                         'detail':'Placeholders that mean "no value": %s' % ', '.join(sorted(placeholders)),'values':sorted(placeholders)})
     if norm_distinct<distinct:
         findings.append({'code':'normalized_collisions','severity':'info','count':distinct-norm_distinct,
                          'detail':'Distinct raw values collapse after trim/case normalization'})
@@ -473,7 +486,7 @@ def profile_table(project: Path, connection: dict, table: str, *, limit: int=SAM
         # Distinct values and empty cells are counted on every row of the prepared copy, so a key
         # is not judged from the first rows of a large table.
         try:
-            full,total_rows=_full_counts(project,connection,table,header)
+            full,total_rows=_full_counts(project,connection,table,header,cols)
             if full:counts_scope='all_rows' if len(full)==len(header) else 'partial'
         except Exception:
             full={}
@@ -514,32 +527,92 @@ def profile_table(project: Path, connection: dict, table: str, *, limit: int=SAM
 FULL_COUNT_SECONDS = 240     # time allowed for whole-table counts of one table; the rest stay sample counts
 
 
-def _full_counts(project, connection, table, header):
-    """{column: (non_missing, distinct)} on every row of the prepared copy, and the row count."""
+def _needs_exact_distinct(c):
+    """Columns whose whole-table distinct count decides something: keys, references, codes, and
+    anything unique in the rows read (a key whatever its name). Other columns keep the distinct
+    count of the rows read; their empty count and "one value only" are still whole-table."""
+    from . import shapes
+    n=c['name']
+    if shapes.is_version(n) or shapes.is_domain(n) or shapes.is_email(n):return False
+    if c['semantic_role_candidate'] in ('PRIMARY_KEY_CANDIDATE','FOREIGN_KEY_CANDIDATE','IDENTIFIER'):return True
+    if shapes.id_ending(n) or shapes.is_code(n):return True
+    return c['non_null_count']>=20 and c['distinct_count']>=0.9*c['non_null_count'] and c['observed_type'] in ('integer','text')
+
+
+SPLIT_ROWS = 300_000     # tables with more rows have their columns counted by several threads at once
+
+
+def _full_counts(project, connection, table, header, cols=None):
+    """{column: (non_missing, distinct or None, one_value)} on every row of the prepared copy, and the
+    row count. One pass counts empty cells and checks for a single value in every column; a second
+    pass counts distinct values of the columns that need it (see _needs_exact_distinct). On a large
+    table the columns are shared out between threads, each reading the table with its own connection."""
     import time
-    from binggio import prepared
+    from binggio import prepared, parallel
+    from binggio.prepared import missing_sql as miss
     path=prepared.ensure(project,connection,table)
     q=_quote_identifier;out={};started=time.time()
-    miss=lambda c:"(%s IS NULL OR trim(%s)='' OR lower(trim(%s)) IN ('null','none','n/a','na','nan','?'))" % (c,c,c)
-    with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)) as db:
+    by={c['name']:c for c in cols or []}
+
+    def connect():
+        db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True,check_same_thread=False)
+        db.execute('PRAGMA temp_store=MEMORY');db.execute('PRAGMA cache_size=-131072')
+        return db
+
+    with closing(connect()) as db:
         total=db.execute('SELECT COUNT(*) FROM t').fetchone()[0]
-        cols=[r[1] for r in db.execute('PRAGMA table_info(t)')]
-        names=[h for h in header if h in cols]
-        for i in range(0,len(names),12):
-            if time.time()-started>FULL_COUNT_SECONDS:break
-            part=names[i:i+12]
-            sql=', '.join('SUM(CASE WHEN %s THEN 0 ELSE 1 END), COUNT(DISTINCT CASE WHEN %s THEN NULL ELSE %s END)' % (miss(q(c)),miss(q(c)),q(c)) for c in part)
+        present=[r[1] for r in db.execute('PRAGMA table_info(t)')]
+    names=[h for h in header if h in present]
+    threads=min(8,parallel.workers()) if total>=SPLIT_ROWS else 1
+
+    def empties(part):
+        # "one value only" can only hold where the rows read show at most one value
+        check=[c for c in part if not cols or (c in by and by[c]['distinct_count']<=1)]
+        sql=', '.join(['SUM(CASE WHEN %s THEN 0 ELSE 1 END)' % miss(q(c)) for c in part]+
+                      ['MIN(CASE WHEN %s THEN NULL ELSE %s END), MAX(CASE WHEN %s THEN NULL ELSE %s END)' % (miss(q(c)),q(c),miss(q(c)),q(c)) for c in check])
+        with closing(connect()) as db:
             r=db.execute('SELECT '+sql+' FROM t').fetchone()
-            for j,c in enumerate(part):out[c]=(r[2*j] or 0,r[2*j+1] or 0)
-    return out,total
+        res={c:[r[j] or 0,None,False] for j,c in enumerate(part)}
+        for k,c in enumerate(check):
+            lo,hi=r[len(part)+2*k],r[len(part)+2*k+1]
+            res[c][2]=res[c][0]>0 and lo==hi
+        return res
+
+    def distincts(part):
+        if time.time()-started>FULL_COUNT_SECONDS:return {}
+        with closing(connect()) as db:
+            r=db.execute('SELECT '+', '.join('COUNT(DISTINCT %s)' % q(c) for c in part)+' FROM t').fetchone()
+        return {c:r[j] or 0 for j,c in enumerate(part)}
+
+    def chunks(xs,n):
+        size=max(1,-(-len(xs)//n))
+        return [xs[i:i+size] for i in range(0,len(xs),size)]
+
+    for _,res,err in parallel.run(chunks(names,threads) if names else [],empties,n_workers=threads):
+        if err:raise err
+        out.update(res)
+    exact=[c for c in names if c in by and _needs_exact_distinct(by[c]) and out[c][0]>0 and not out[c][2]] if cols else names
+    # each COUNT(DISTINCT) keeps its own sorted list, so a few columns per query
+    parts=[exact[i:i+4] for i in range(0,len(exact),4)] if threads>1 else [exact[i:i+16] for i in range(0,len(exact),16)]
+    for _,res,err in parallel.run(parts,distincts,n_workers=threads):
+        if err:raise err
+        for c,v in res.items():out[c][1]=v
+    for c,v in out.items():
+        if v[2]:v[1]=1
+        elif v[0]==0:v[1]=0
+    return {c:tuple(v) for c,v in out.items()},total
 
 
 def _apply_full(c,f,total):
-    present,distinct=f
+    present,distinct,one=f
     missing=total-present
     c.update({'observed_rows':total,'non_null_count':present,'missing_count':missing,'missing_pct':round(100*missing/max(total,1),2),
-              'distinct_count':distinct,'distinct_pct':round(100*distinct/present,2) if present else 0.0,
-              'duplicate_value_count':present-distinct,'counts_scope':'all_rows'})
+              'counts_scope':'all_rows'})
+    if distinct is not None:
+        c.update({'distinct_count':distinct,'distinct_pct':round(100*distinct/present,2) if present else 0.0,
+                  'duplicate_value_count':present-distinct,'distinct_scope':'all_rows'})
+    else:
+        c['distinct_scope']='sample'          # empty count is whole-table; distinct is of the rows read
     for x in c['findings']:
         if x['code']=='missing_values':
             x['count']=missing;x['severity']='warning' if missing/max(total,1)>=.1 else 'info'
@@ -591,9 +664,9 @@ def _refine_shapes(project,connection,table,cols,groups,total_rows):
     from binggio import prepared
     for extra in [x for x in (period,version) if x]+([[period,version]] if period and version else []):
         parts=[own['name']]+(extra if isinstance(extra,list) else [extra])
-        try:k=prepared.key_check(project,connection,table,parts)
+        try:unique=prepared.is_unique(project,connection,table,parts)
         except Exception:break
-        if k['unique']:
+        if unique:
             why=parts;break
     if own['distinct_count']==own['non_null_count']:
         if own['semantic_role_candidate']!='PRIMARY_KEY_CANDIDATE' and own['counts_scope']=='all_rows':

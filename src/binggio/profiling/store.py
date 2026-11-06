@@ -68,16 +68,25 @@ def _catalog_table(project: Path,cid: str,table: str) -> dict:
     return c
 
 
+_TABLE_LOCKS: dict = {}
+
+
+def _table_lock(project,cid,table):
+    with _LOCK:
+        return _TABLE_LOCKS.setdefault((str(Path(project).resolve()),cid,table),threading.Lock())
+
+
 def run_table(project: Path,cid: str,table: str, *, force: bool=False,limit: int=SAMPLE_LIMIT) -> dict:
     connection=_catalog_table(project,cid,table)
     if not 1<=int(limit)<=SAMPLE_LIMIT:raise ConnectionErrorSafe('Sample limit must be 1..2500')
-    with _LOCK:
+    # one lock per table: different tables are profiled at the same time (0.1.9), the same table never twice at once
+    with _table_lock(project,cid,table):
         if not force:
             prior=get_table(project,cid,table,include_stale=True)
             if prior and not prior['stale'] and prior['sample_limit']==limit and prior['profile_version']==VERSION:
                 return {**prior,'cache_hit':True}
         report=profile_table(project,connection,table,limit=limit)
-        with _db(project) as db:
+        with _LOCK,_db(project) as db:
             db.execute('''INSERT INTO profiles(connection_id,table_name,profile_version,sample_limit,
                 fingerprint_json,report_json,profiled_at) VALUES(?,?,?,?,?,?,?)
                 ON CONFLICT(connection_id,table_name) DO UPDATE SET
@@ -147,7 +156,7 @@ def summary(project: Path) -> dict:
 _MIGRATING=[False]
 
 
-def run_all(project: Path, *, force: bool=False,limit: int=SAMPLE_LIMIT) -> dict:
+def run_all(project: Path, *, force: bool=False,limit: int=SAMPLE_LIMIT,progress=None) -> dict:
     if not _MIGRATING[0]:
         # An older workspace is moved to the current evidence rules BEFORE its profiles are rebuilt:
         # the migration checks each approval against the profiles it was made on.
@@ -159,13 +168,18 @@ def run_all(project: Path, *, force: bool=False,limit: int=SAMPLE_LIMIT) -> dict
     tables=catalog.list_tables(project,limit=5000)
     if len(tables)>2000:raise ConnectionErrorSafe('Profiling is limited to 2000 tables per workspace')
     passed=0;cached=0;failures=[]
-    for t in tables:
-        try:
-            result=run_table(project,t['connection_id'],t['table_name'],force=force,limit=limit)
+    from binggio import parallel
+    # every table at the same time, as many as there are processor cores (BINGGIO_WORKERS)
+    results=parallel.run(tables,lambda t:run_table(project,t['connection_id'],t['table_name'],force=force,limit=limit),
+                         progress=progress,label=lambda t:t['table_name'])
+    for t,result,exc in results:
+        if exc is None:
             passed+=1
             if result['cache_hit']:cached+=1
-        except (ConnectionErrorSafe,OSError,sqlite3.Error,ValueError) as exc:
+        elif isinstance(exc,(ConnectionErrorSafe,OSError,sqlite3.Error,ValueError)):
             failures.append({'connection_id':t['connection_id'],'table':t['table_name'],
                              'error':str(exc)[:180]})
+        else:
+            raise exc
     return {'total':len(tables),'profiled_or_cached':passed,'cache_hits':cached,
         'failures':failures,'summary':summary(project)}

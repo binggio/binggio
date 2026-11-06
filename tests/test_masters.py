@@ -215,6 +215,11 @@ def test_masters_through_the_app(tmp_path):
     ws.profile(); ws.discover()
     app = App(ws)
     d = api(app, 'GET', '/api/masters', {}, {})
+    assert d['computing']                                        # first visit: the analysis runs in the background
+    for _ in range(300):
+        if api(app, 'GET', '/api/jobs/' + d['job']['id'], {}, {})['status'] != 'running': break
+        time.sleep(0.05)
+    d = api(app, 'GET', '/api/masters', {}, {})
     desk = next(p for p in d['proposals'] if p['name'] == 'Desk')
     r = api(app, 'POST', '/api/masters', {}, {'action': 'approve', 'kind': 'entity', 'spec': desk['spec'], 'by': 'Asha',
                                                'note': 'desk ids', 'approve_links': True})
@@ -239,3 +244,55 @@ def test_masters_through_the_app(tmp_path):
     api(app, 'POST', '/api/masters', {}, {'action': 'withdraw', 'id': m['id'], 'by': 'Asha', 'note': 'test'})
     rels = [x for x in store.list_relationships(ws.root, limit=10 ** 6)['items'] if x['parent_table'] == 'MASTER_DESK']
     assert rels and not any(x['effective_status'] == 'approved' for x in rels)
+
+
+def test_recommended_fixes_approved_by_a_person(tmp_path):
+    import time
+    from binggio import fix_advice
+    from binggio.ui.server import App, api
+    src = tmp_path / 'src'; src.mkdir()
+    with open(src / 'trades.csv', 'w', newline='') as f:
+        w = csv.writer(f); w.writerow(['trade_id', 'desk_code', 'notional', 'trade_date', 'counterparty'])
+        for i in range(60):
+            w.writerow(['T%03d' % i, ('rates ' if i % 5 == 0 else 'RATES') if i % 2 else 'FX', '$%s' % format(1000 * (i + 1), ','),
+                        '%02d/%02d/2026' % (i % 28 + 1, i % 12 + 1), '-' if i % 7 == 0 else 'CP%d' % (i % 4)])
+    ws = binggio.Workspace.create(tmp_path / 'ws')
+    cid = ws.add_csv_folder('S', src)['id']; ws.profile(); ws.discover()
+    recs = {(r['column'], r['kind']): r for r in fix_advice.recommend(ws.root)}
+    assert ('desk_code', 'trim') in recs and ('notional', 'number') in recs and ('counterparty', 'replace') in recs
+    d = recs[('trade_date', 'add_date')]
+    assert d['params'] == {'format': '%d/%m/%Y'} and 'day first' in d['why']       # some days are above 12
+    assert ('trade_id', 'number') not in recs                                        # never on identifiers
+    app = App(ws)
+    ids = [recs[('notional', 'number')]['id'], recs[('trade_date', 'add_date')]['id']]
+    try:
+        api(app, 'POST', '/api/fixes/recommended', {}, {'action': 'approve', 'ids': ids, 'by': 'Asha', 'note': ''})
+        raise AssertionError('approved without a reason')
+    except Exception as e:
+        assert 'why' in str(e).lower()
+    r = api(app, 'POST', '/api/fixes/recommended', {}, {'action': 'approve', 'ids': ids, 'by': 'Asha', 'note': 'checked the previews'})
+    for _ in range(300):
+        j = api(app, 'GET', '/api/jobs/' + r['job']['id'], {}, {})
+        if j['status'] != 'running': break
+        time.sleep(0.05)
+    assert j['status'] == 'done', j
+    conn = next(c for c in ws.connections() if c['id'] == cid)
+    h, rows, _ = prepared.read(ws.root, conn, 'trades', 5)
+    row = dict(zip(h, rows[1]))
+    assert row['notional'] == '2000' and row['trade_date_date'] == '2026-02-02'
+    fixes = prepared.list_fixes(ws.root, cid, 'trades')
+    assert all('recommended by Binggio' in f['note'] and f['created_by'] == 'Asha' for f in fixes)
+    left = {(x['column'], x['kind']) for x in fix_advice.recommend(ws.root)}
+    assert ('notional', 'number') not in left and ('desk_code', 'trim') in left
+    fix_advice.dismiss(ws.root, [x['id'] for x in fix_advice.recommend(ws.root) if x['column'] == 'desk_code'], 'Asha', 'spaces are meaningful here')
+    assert not any(x['column'] == 'desk_code' for x in fix_advice.recommend(ws.root))
+
+
+def test_masters_analysis_is_saved_until_data_changes(work):
+    ws, cid, _ = work
+    masters.analysis(ws.root)
+    assert masters.cached_analysis(ws.root) is not None
+    conn = next(c for c in ws.connections() if c['id'] == cid)
+    prepared.add_fix(ws.root, conn, ERDS, 'trim', 'lastname', {}, 'T', 'spaces')
+    ws.profile()
+    assert masters.cached_analysis(ws.root) is None            # the data Binggio reads changed

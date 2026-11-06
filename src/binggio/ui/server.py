@@ -237,22 +237,25 @@ def api(app: App, method, path, q, body):
         def run(step):
             step(0); r = ws.refresh(cid, password=pw)
             step(1); _prepare(ws, step, 1)
-            step(2); ws.profile()
+            step(2); ws.profile(progress=_steps(step, 2))
             step(3); _rebuild_masters(ws, step, 3)
             step(4); ws.discover()
+            step(5); _analyse_masters(ws, step, 5)
             return r
         return app.start_job('refresh', ['Reading the source again', 'Preparing tables for fast reading', 'Profiling every row (your data fixes are applied again)',
-                                         'Rebuilding approved masters', 'Finding relationships'], run)
+                                         'Rebuilding approved masters', 'Finding relationships', 'Looking for masters'], run)
     if path == '/api/sources/test' and method == 'POST':
         return _test_database(body)
     if path == '/api/pipeline' and method == 'POST':
         def run(step):
             step(0); _prepare(ws, step, 0)
-            step(1); p = ws.profile(force=bool(body.get('force')))
+            step(1); p = ws.profile(force=bool(body.get('force')), progress=_steps(step, 1))
             step(2); _rebuild_masters(ws, step, 2)
             step(3); d = ws.discover()
+            step(4); _analyse_masters(ws, step, 4)
             return {'profile': {k: p[k] for k in ('total', 'profiled_or_cached') if k in p}, 'failures': p.get('failures'), 'discover': d}
-        return app.start_job('pipeline', ['Preparing tables for fast reading', 'Profiling every row', 'Rebuilding approved masters', 'Finding relationships'], run)
+        return app.start_job('pipeline', ['Preparing tables for fast reading', 'Profiling every row', 'Rebuilding approved masters', 'Finding relationships',
+                                          'Looking for masters'], run)
 
     if path == '/api/tables':
         from binggio.profiling import store as profiles
@@ -355,6 +358,12 @@ def api(app: App, method, path, q, body):
     if path == '/api/history':
         return store.events(root, artifact_id=q.get('artifact') or None, limit=int(q.get('limit') or 200))
 
+    if path == '/api/fixes/recommended' and method == 'GET':
+        from binggio import fix_advice
+        return {'items': fix_advice.recommend(root, q.get('connection') or None, q.get('table') or None)}
+    if path == '/api/fixes/recommended' and method == 'POST':
+        ws._no_data_changes()
+        return _advice_action(app, ws, body)
     if path == '/api/fixes' and method == 'GET':
         return _fixes_info(root, q['connection'], q['table'])
     if path == '/api/fixes/preview' and method == 'POST':
@@ -381,6 +390,15 @@ def api(app: App, method, path, q, body):
         return _link_action(root, body)
 
     if path == '/api/masters' and method == 'GET':
+        from binggio import masters
+        if masters.cached_analysis(root) is None:
+            # reading every identifier of every table takes a while on large data: it runs in the
+            # background once, and the page shows its progress
+            job = getattr(app, '_masters_job', None)
+            if job is None or app.jobs.get(job['id'], {}).get('status') != 'running':
+                job = app._masters_job = app.start_job('masters', ['Looking for entities across your tables'],
+                    lambda step: masters.analysis(root, progress=_steps(step, 0)) and None)
+            return {'computing': True, 'job': app.jobs.get(job['id'], job)}
         return _masters_info(root)
     if path == '/api/masters' and method == 'POST':
         return _master_action(app, ws, body)
@@ -548,12 +566,14 @@ def _add_source(app, ws, b):
     def run(step):
         step(0); c = add()
         step(1); _prepare(ws, step, 1)
-        step(2); p = ws.profile()
+        step(2); p = ws.profile(progress=_steps(step, 2))
         step(3); d = ws.discover()
+        step(4); _analyse_masters(ws, step, 4)
         return {'connection': c['id'], 'tables': c.get('table_count'), 'notes': c.get('notes', []),
                 'profile_failures': p.get('failures'), 'candidate_relationships': d.get('candidate_edges'),
                 'skipped_tables': d.get('skipped_tables', [])}
-    return app.start_job('add', ['Copying the data in', 'Preparing tables for fast reading', 'Profiling every column', 'Finding relationships'], run)
+    return app.start_job('add', ['Copying the data in', 'Preparing tables for fast reading', 'Profiling every column', 'Finding relationships',
+                                 'Looking for masters'], run)
 
 
 def _rebuild_masters(ws, step, i):
@@ -566,9 +586,24 @@ def _rebuild_masters(ws, step, i):
     return r
 
 
+def _analyse_masters(ws, step, i):
+    from binggio import masters
+    try: masters.analysis(ws.root, progress=_steps(step, i))
+    except Exception as e: step(i, 'failed', str(e)[:160])     # the Masters page tries again when opened
+
+
+def _steps(step, i):
+    return lambda k, n, t: step(i, 'running', '%d of %d done (%s), %d at a time' % (k, n, t, _workers()))
+
+
+def _workers():
+    from binggio import parallel
+    return parallel.workers()
+
+
 def _prepare(ws, step, i):
     from binggio import prepared
-    return prepared.prepare_all(ws.root, progress=lambda k, n, t: step(i, 'running', '%d of %d: %s' % (k + 1, n, t)))
+    return prepared.prepare_all(ws.root, progress=lambda k, n, t: step(i, 'running', '%d of %d done (%s)' % (k + 1, n, t)))
 
 
 def _test_database(b):
@@ -1330,4 +1365,40 @@ def _master_action(app, ws, b):
         return {'built': built['built'], 'links': res}
     return {'master': m, 'job': app.start_job('master', ['Building the master table', 'Profiling it', 'Linking the member columns' +
                                                          (' and approving the links' if approve_links else ' (for review)')], run)}
+
+
+def _advice_action(app, ws, b):
+    """Approve (as data fixes) or set aside fixes Binggio recommended; approved fixes are applied to
+    every row of their tables, which are profiled again, in one job."""
+    from binggio import fix_advice, prepared, parallel
+    from binggio.profiling import store as profiles
+    root = ws.root
+    ids = [str(x) for x in b.get('ids') or []]
+    if not ids: raise ApiError('Choose at least one recommended fix')
+    try:
+        if b.get('action') == 'dismiss':
+            return fix_advice.dismiss(root, ids, _by(b), b.get('note'))
+        r = fix_advice.approve(root, ids, _by(b), b.get('note'), params=b.get('params') or {})
+    except (fix_advice.AdviceError, prepared.FixError) as e:
+        raise ApiError(str(e))
+
+    def run(step):
+        tables = r['tables']
+        step(0)
+        for _, _, e in parallel.run(tables, lambda t: prepared.ensure(root, _conn(root, t[0]), t[1]), n_workers=1,
+                                    progress=_steps(step, 0), label=lambda t: t[1]):
+            if e: raise e
+        step(1)
+        for _, _, e in parallel.run(tables, lambda t: profiles.run_table(root, t[0], t[1], force=True),
+                                    progress=_steps(step, 1), label=lambda t: t[1]):
+            if e: raise e
+        step(2); _rebuild_masters(ws, step, 2)
+        step(3)
+        try: ws.discover()
+        except Exception as e: step(3, 'failed', str(e)[:160])
+        step(4); _analyse_masters(ws, step, 4)
+        return {'added': len(r['added']), 'tables': [t[1] for t in tables]}
+    job = app.start_job('fixes', ['Applying the fixes to every row', 'Profiling the fixed tables again', 'Rebuilding approved masters',
+                                  'Finding relationships again', 'Looking for masters again'], run)
+    return {'added': len(r['added']), 'job': job}
 

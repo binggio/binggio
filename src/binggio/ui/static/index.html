@@ -537,7 +537,7 @@ async function pageHome() {
   ];
   const now = steps.findIndex(s => !s[2]);
   p.innerHTML = `
-    <div class="mstats">
+    <div class="stats">
       <div class="stat"><b>${fmt(o.sources.length)}</b><span>sources</span></div>
       <div class="stat"><b>${fmt(st.tables)}</b><span>tables</span></div>
       <div class="stat good"><b>${fmt(ans.tables || 0)}</b><span>tables ready for questions</span></div>
@@ -733,7 +733,11 @@ async function pageExplore(cid, table) {
   $$('[data-adddate]', td).forEach(b => b.onclick = () => fixModal(cid, table, {column: b.dataset.adddate, kind: 'add_date'}, reload));
   if ($('#fx-add')) $('#fx-add').onclick = () => fixModal(cid, table, {}, reload);
   if ($('#ex-link')) $('#ex-link').onclick = () => linkModal({child: {connection: cid, table}}, reload);
-  fixesPanel(cid, table, reload).catch(e => { if (!e.stale && $('#fx-body')) $('#fx-body').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; });
+  fixesPanel(cid, table, reload).then(async () => {
+    const rec = await api('/api/fixes/recommended?connection=' + encodeURIComponent(cid) + '&table=' + encodeURIComponent(table));
+    const b = $('#fx-body');
+    if (b && rec.items.length) b.insertAdjacentHTML('afterbegin', `<div class="note-box small">Binggio recommends ${rec.items.length} fix${rec.items.length === 1 ? '' : 'es'} for this table: ${rec.items.slice(0, 3).map(r => esc(r.label)).join('; ')}${rec.items.length > 3 ? '…' : ''}. <a href="#review/fixes/${encodeURIComponent(table)}">Review them</a></div>`);
+  }).catch(e => { if (!e.stale && $('#fx-body')) $('#fx-body').innerHTML = `<div class="err-box">${esc(e.message)}</div>`; });
   keyTools(cid, table, d, reload);
 }
 
@@ -991,7 +995,7 @@ async function pageOnboard(cid) {
 /* ================================================================== review */
 async function pageReview(tab, status, table) {
   tab = tab || 'roles';
-  const titles = {roles: 'Column roles', masters: 'Masters', relationships: 'Relationships', concepts: 'Business concepts', terms: 'Business terms',
+  const titles = {roles: 'Column roles', fixes: 'Data fixes', masters: 'Masters', relationships: 'Relationships', concepts: 'Business concepts', terms: 'Business terms',
     definitions: 'Definitions', issues: 'Issues', automatic: 'Automatic'};
   const p = setPage('review', 'Review');
   const o = S.overview || await api('/api/overview');
@@ -1005,10 +1009,67 @@ async function pageReview(tab, status, table) {
   }
   if (tab === 'roles' || tab === 'relationships') return reviewList(tab, status || (cnt[tab] ? 'pending' : 'all'), table || '');
   if (tab === 'masters') return reviewMasters();
+  if (tab === 'fixes') return reviewFixes(status || '');
   if (tab === 'definitions') return reviewDefinitions();
   if (tab === 'issues') return reviewIssues(status || 'open');
   if (tab === 'automatic') return reviewAutomatic();
   return reviewArtifacts(tab);
+}
+
+/* ------------------------------------------------------------------ recommended data fixes (0.1.9) */
+const IMPACT = {keys: 'Helps keys match', measures: 'Makes a measure', dates: 'Makes usable dates', missing: 'Empty values', categories: 'Merges categories', tidy: 'Tidies text'};
+async function reviewFixes(table) {
+  const el = $('#rv'); el.innerHTML = '<div class="panel empty">Loading…</div>';
+  const d = await api('/api/fixes/recommended' + (table ? '?table=' + encodeURIComponent(table) : ''));
+  if (!$('#rv')) return;
+  const items = d.items, ro = S.state.demo;
+  const by = {}; items.forEach((r, i) => (by[r.table] = by[r.table] || []).push([r, i]));
+  el.innerHTML = `<div class="panel"><div class="head"><h2>Recommended data fixes</h2>${table ? `<a class="btn sm" href="#review/fixes">All tables</a>` : ''}</div>
+      <p class="muted" style="margin-top:0">From what profiling found on every row: stray spaces, upper/lower case variants, numbers written as text, placeholders such as "-" or "#N/A", dates written as text, and keys written differently from the table they link to. Nothing changes until you approve; an approved fix is applied to Binggio's copy of the table (never the source), recorded with your name and reason, and can be removed later. Approvals on a fixed table need confirming again, because its data changes.</p>
+      ${items.length ? '' : '<p class="muted">Nothing to recommend: no problem found that a data fix would solve.</p>'}
+      ${Object.entries(by).map(([t, rs]) => `<h3 style="margin:14px 0 6px">${esc(t)}</h3><div class="scroll"><table class="t mem"><colgroup><col style="width:5%"><col style="width:22%"><col style="width:16%"><col style="width:45%"><col style="width:12%"></colgroup>
+        <tr><th></th><th>Fix</th><th>Effect</th><th>Why</th><th></th></tr>${rs.map(([r, i]) => `<tr><td>${ro ? '' : `<input type="checkbox" data-rc="${i}" aria-label="Choose">`}</td>
+        <td><b>${esc(r.label)}</b></td><td class="small">${esc(IMPACT[r.impact] || '')}</td><td class="small">${esc(r.why)}<div id="rp-${i}"></div></td>
+        <td><button class="btn ghost sm" data-rprev="${i}">Preview</button></td></tr>`).join('')}</table></div>`).join('')}
+      ${items.length && !ro ? `<div class="row" style="margin-top:12px"><label class="small"><input type="checkbox" id="rc-all"> Choose all</label><span class="grow"></span>
+        <button class="btn bad sm" id="rc-dis">Not needed</button><button class="btn good" id="rc-ok">Approve chosen fixes</button></div><div id="rc-job"></div>` : ''}</div>`;
+  const chosen = () => $$('[data-rc]', el).filter(c => c.checked).map(c => items[+c.dataset.rc]);
+  if ($('#rc-all')) $('#rc-all').onchange = e => $$('[data-rc]', el).forEach(c => c.checked = e.target.checked);
+  const formats = {};
+  $$('[data-rprev]', el).forEach(b => b.onclick = async () => {
+    const r = items[+b.dataset.rprev], box = $('#rp-' + b.dataset.rprev);
+    box.innerHTML = '<div class="empty">Checking…</div>';
+    try {
+      const params = {...r.params, ...(formats[r.id] ? {format: formats[r.id]} : {})};
+      const x = await api('/api/fixes/preview', {connection: r.connection, table: r.table, kind: r.kind, column: r.column, params});
+      box.innerHTML = `<div class="note-box small" style="margin-top:6px">${r.kind === 'add_date' ? `On the first ${fmt(x.rows_checked)} rows: ${fmt(x.unreadable)} value(s) could not be read as dates.`
+          : `On the first ${fmt(x.rows_checked)} rows, ${fmt(x.changed)} value(s) change${x.became_empty ? `, ${fmt(x.became_empty)} become empty` : ''}.`}</div>
+        ${x.warning ? `<div class="warn-box small">${esc(x.warning)}</div>` : ''}
+        ${r.kind === 'add_date' && !ro ? `<label class="f small">Dates look like<select data-rfmt="${esc(r.id)}"><option value="">Recognised automatically</option>${['%d/%m/%Y','%m/%d/%Y','%d-%m-%Y','%m-%d-%Y','%d.%m.%Y','%d-%b-%Y','%d/%m/%Y %H:%M:%S','%m/%d/%Y %H:%M:%S'].map(f => `<option value="${f}" ${(formats[r.id] || r.params.format) === f ? 'selected' : ''}>${f.replace('%d','DD').replace('%m','MM').replace('%Y','YYYY').replace('%b','Mon').replace('%H:%M:%S','hh:mm:ss')}</option>`).join('')}</select></label>` : ''}
+        ${(x.examples || []).length ? `<table class="t small"><tr><th>Before</th><th>After</th></tr>${x.examples.slice(0, 6).map(e => `<tr><td><code>${esc(e.before)}</code></td><td><code>${esc(e.after)}</code></td></tr>`).join('')}</table>` : ''}`;
+      const sel = $('[data-rfmt]', box); if (sel) sel.onchange = () => { formats[r.id] = sel.value; b.click(); };
+    } catch (e) { box.innerHTML = `<div class="err-box small">${esc(e.message)}</div>`; }
+  });
+  if ($('#rc-ok')) $('#rc-ok').onclick = async () => {
+    try {
+      const rs = chosen(); if (!rs.length) throw new Error('Tick the fixes to approve');
+      const by = await needReviewer();
+      const note = await askText('Approve ' + rs.length + ' data fix' + (rs.length === 1 ? '' : 'es'), 'Each is added as a data fix with your name and this reason, applied to every row, and the tables are profiled again.', 'Why are they right?', '');
+      if (!note) return;
+      const params = {}; rs.forEach(r => { if (formats[r.id] !== undefined) params[r.id] = {format: formats[r.id]}; });
+      const res = await api('/api/fixes/recommended', {action: 'approve', ids: rs.map(r => r.id), params, by, note});
+      $('#rc-ok').disabled = true;
+      watchJob(res.job, $('#rc-job'), j => { if (j.status === 'done') { toast(res.added + ' fix(es) applied'); reviewFixes(table).catch(fail); } });
+    } catch (e) { fail(e); }
+  };
+  if ($('#rc-dis')) $('#rc-dis').onclick = async () => {
+    try {
+      const rs = chosen(); if (!rs.length) throw new Error('Tick the recommendations that are not needed');
+      const by = await needReviewer();
+      const note = await askText('Not needed', 'They are set aside and not recommended again.', 'Why?', ''); if (!note) return;
+      await api('/api/fixes/recommended', {action: 'dismiss', ids: rs.map(r => r.id), by, note}); toast('Set aside'); reviewFixes(table).catch(fail);
+    } catch (e) { fail(e); }
+  };
 }
 
 /* ------------------------------------------------------------------ masters (0.1.7) */
@@ -1016,6 +1077,11 @@ async function reviewMasters() {
   const el = $('#rv'); el.innerHTML = '<div class="panel empty">Looking for entities across your tables…</div>';
   const d = await api('/api/masters');
   if (!$('#rv')) return;
+  if (d.computing) {
+    el.innerHTML = `<div class="panel"><div class="head"><h2>Masters</h2></div><p class="muted" style="margin-top:0">Binggio is reading the identifiers of every table, on every row, to see which ones refer to the same employee, book or desk. This runs once after the data changes; the page fills in when it is done.</p><div id="ms-wait"></div></div>`;
+    watchJob(d.job, $('#ms-wait'), j => { if (S.cur === 'review' && $('#rv')) { if (j.status === 'done') reviewMasters().catch(fail); } });
+    return;
+  }
   const ro = S.state.demo;
   const pct = x => (Math.round(x * 1000) / 10) + '%';
   const card = (m, i, approved) => {

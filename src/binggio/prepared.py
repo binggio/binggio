@@ -18,6 +18,7 @@ A table's fixes are part of its fingerprint, so adding or removing a fix makes t
 approvals stale until a person re-confirms them: the data they were approved on has changed.
 """
 from __future__ import annotations
+from contextlib import closing
 import csv
 import hashlib
 import json
@@ -27,6 +28,7 @@ import re
 import sqlite3
 import statistics
 import threading
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -626,6 +628,30 @@ def row_count(root, conn, table):
     return info(root, conn, table)['rows']
 
 
+def missing_sql(c):
+    """SQL for "this cell is empty", the same rule as _is_missing: NULL, or blank / null / none / n/a / na /
+    nan / ? once spaces are trimmed, ignoring case. Written with LIKE and GLOB, which allocate no memory:
+    lower() and trim() on every cell made parallel threads wait on SQLite's shared memory lock. trim()
+    runs only on the rare value that starts or ends with a space, tab or line break."""
+    tokens = "('', 'null', 'none', 'n/a', 'na', 'nan', '?')"
+    return ("(%s IS NULL OR %s = '' OR %s = '?' OR %s LIKE 'null' OR %s LIKE 'none' OR %s LIKE 'n/a' OR %s LIKE 'na' OR %s LIKE 'nan' "
+            "OR ((%s GLOB '[ ' || char(9, 10, 13) || ']*' OR %s GLOB '*[ ' || char(9, 10, 13) || ']') "
+            "AND lower(trim(%s, ' ' || char(9, 10, 13))) IN %s))" % ((c,) * 11 + (tokens,)))
+
+
+def is_unique(root, conn, table, columns):
+    """True when these columns together have a value on every row and never repeat (one quick pass)."""
+    path = ensure(root, conn, table)
+    q = _quote_identifier
+    cols = ', '.join(q(c) for c in columns)
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
+        db.execute('PRAGMA temp_store=MEMORY')
+        n = db.execute('SELECT COUNT(*) FROM t').fetchone()[0]
+        # rows with an empty part are left out, so the count only equals the rows when none is empty and none repeats
+        return db.execute('SELECT COUNT(*) FROM (SELECT 1 FROM t WHERE NOT (%s) GROUP BY %s)'
+                          % (' OR '.join(missing_sql(q(c)) for c in columns), cols)).fetchone()[0] == n
+
+
 def key_check(root, conn, table, columns):
     """Whole-table check of a key (one column or several together): rows, missing, duplicates."""
     header = header_with_fixes(root, conn, table)
@@ -635,9 +661,8 @@ def key_check(root, conn, table, columns):
     q = _quote_identifier
     cols = ', '.join(q(c) for c in columns)
     with _connect(path) as db:
-        _register(db)
         n = db.execute('SELECT COUNT(*) FROM t').fetchone()[0]
-        miss_expr = ' OR '.join('bn_missing(%s)=1' % q(c) for c in columns)
+        miss_expr = ' OR '.join(missing_sql(q(c)) for c in columns)     # plain SQL: no Python call per cell
         missing = db.execute('SELECT COUNT(*) FROM t WHERE %s' % miss_expr).fetchone()[0]
         distinct = db.execute('SELECT COUNT(*) FROM (SELECT 1 FROM t WHERE NOT (%s) GROUP BY %s)' % (miss_expr, cols)).fetchone()[0]
         dups = db.execute('SELECT %s, COUNT(*) AS n FROM t WHERE NOT (%s) GROUP BY %s HAVING n > 1 ORDER BY n DESC LIMIT 5'
@@ -724,16 +749,69 @@ def distinct_values(root, conn, table, column, cap):
 def prepare_all(root, progress=None):
     """Build the prepared copy of every registered table (used after adding or refreshing data)."""
     from binggio.catalog import catalog
+    from binggio import parallel
     conns = {c['id']: c for c in catalog.list_connections(root)}
     tables = catalog.list_tables(root, limit=5000)
-    done, failures = 0, []
-    for i, t in enumerate(tables):
-        if progress: progress(i, len(tables), t['table_name'])
+    todo = [t for t in tables if not is_ready(root, conns[t['connection_id']], t['table_name'])]
+    done, failures = len(tables) - len(todo), []
+    step = (lambda k, n, name: progress(done + k - 1, len(tables), name)) if progress else None
+    results = None
+    # Reading CSV files is Python work: it runs in separate processes, one table each, as many at once
+    # as there are cores. Threads would wait on each other (Python's lock and SQLite's memory lock), so
+    # where processes cannot start, tables are prepared one at a time.
+    if len(todo) > 1 and parallel.processes_allowed() and parallel.workers() > 1:
         try:
-            ensure(root, conns[t['connection_id']], t['table_name']); done += 1
-        except (ConnectionErrorSafe, OSError, sqlite3.Error, ValueError) as e:
-            failures.append({'table': t['table_name'], 'error': str(e)[:160]})
+            results = _prepare_in_processes(root, [(conns[t['connection_id']], t['table_name']) for t in todo], step)
+        except OSError:
+            results = None
+    if results is None:
+        results = [(t['table_name'], e) for t, _, e in parallel.run(todo, lambda t: ensure(root, conns[t['connection_id']], t['table_name']),
+                                                                   progress=step, label=lambda t: t['table_name'], n_workers=1)]
+    for name, e in results:
+        if e is None: done += 1
+        elif isinstance(e, (ConnectionErrorSafe, OSError, sqlite3.Error, ValueError)): failures.append({'table': name, 'error': str(e)[:160]})
+        else: raise e
     return {'prepared': done, 'failures': failures}
+
+
+def _child():
+    """Entry point of a worker process: prepare one table (arguments as JSON in argv[1])."""
+    a = json.loads(sys.argv[1])
+    try:
+        ensure(Path(a['root']), a['conn'], a['table'])
+    except Exception as e:
+        sys.stderr.write('%s: %s\n' % (type(e).__name__, str(e)[:300]))
+        sys.exit(1)
+
+
+def _prepare_in_processes(root, jobs, progress):
+    """Prepare tables in worker processes started with `python -c` (no re-import of the program that
+    started them, so it behaves the same on Windows, macOS and Linux). Returns [(table, error)]."""
+    import subprocess
+    from binggio import parallel
+    env = dict(os.environ)
+    pkg_parent = str(Path(__file__).resolve().parent.parent)
+    env['PYTHONPATH'] = pkg_parent + (os.pathsep + env['PYTHONPATH'] if env.get('PYTHONPATH') else '')
+    flags = 0x08000000 if sys.platform == 'win32' else 0        # CREATE_NO_WINDOW: no console window per worker
+    n = min(parallel.workers(), len(jobs))
+    pending, running, out, finished = list(jobs), [], [], 0
+    while pending or running:
+        while pending and len(running) < n:
+            conn, table = pending.pop(0)
+            arg = json.dumps({'root': str(Path(root).resolve()), 'conn': conn, 'table': table})
+            proc = subprocess.Popen([sys.executable, '-c', 'from binggio.prepared import _child; _child()', arg],
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env, creationflags=flags)
+            running.append((proc, table))
+        time.sleep(0.05)
+        for proc, table in list(running):
+            if proc.poll() is None: continue
+            running.remove((proc, table))
+            err = proc.stderr.read().decode('utf-8', 'replace').strip() if proc.stderr else ''
+            if proc.stderr: proc.stderr.close()
+            out.append((table, None if proc.returncode == 0 else ValueError((err.splitlines() or ['worker stopped'])[-1])))
+            finished += 1
+            if progress: progress(finished, len(jobs), table)
+    return out
 
 
 def disk_usage(root):

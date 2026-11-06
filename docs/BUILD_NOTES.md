@@ -15,6 +15,40 @@ modified). Eight parts.
 | 7. The app | `binggio ui`: start screen, data sources (CSV, Excel, SQLite, SQL Server, Oracle, PostgreSQL), explore, onboarding, review (roles, relationships, concepts, terms: approve / reject / revoke / reopen, bulk), relationship map, ask with provenance, activity, settings. Standard library server on 127.0.0.1 with a session token and host check; secrets in memory only | `test_ui` (token and host checks, overview, 10 sample questions match the verified answers, full new-user flow); simulator journey `web app` (installed command, API, and all 11 screens in a browser when Playwright is present) |
 | 8. Speed | Within one status, review or answer call each table's profile and freshness are worked out once (`evaluation_scope`); nothing is reused across calls | demo `status`: 8.4 s -> 0.7 s, identical results |
 
+## 0.1.9 (6 Nov 2026)
+
+All tables at once. Tables are prepared in worker processes (one table each, started with
+`python -c`, so it behaves the same on Windows, macOS and Linux) and profiled in threads (SQLite work
+runs outside Python's lock); a table of 300,000 rows or more also has its columns counted by
+several threads. Same results as one at a time (`tests/test_parallel.py` compares both, copies and
+profiles). On a 2-core test machine with 1.5 million rows: preparing 10.7 s -> 5.9 s, profiling
+33.5 s -> 17.8 s; more cores, more tables at once.
+
+Found on the way: the "empty cell" test used lower() and trim() on every cell, which allocate
+memory, and SQLite has one memory lock for all threads, so two threads ran ten times slower than
+one. It now uses LIKE and GLOB (no allocation) with the same meaning of empty.
+
+Also in 0.1.9: data fixes recommended from the profiles (`fix_advice.py`, Review > Data fixes): trim
+stray spaces, one case for values that differ only by case, read numbers written as text ($1,234.50,
+never in identifier columns), empty out placeholders ("-", "#N/A"), add a date column for dates
+written as text (day/month order settled on every row), keep digits only where a key matches its
+master only by digits. A person approves or sets them aside; approved ones are ordinary data fixes.
+The masters analysis is saved and reused until a table's data or profile changes, and runs in the
+background (the Masters page loaded slowly: it re-read every identifier column on every visit).
+Overview tiles restored (a class renamed for the Masters cards had also caught them).
+
+`BINGGIO_WORKERS` sets how many tables at once (default: the number of cores, at most 16; 1 = one
+at a time); `BINGGIO_PROCESSES=0` prepares tables in the main process.
+
+## 0.1.8 (6 Nov 2026)
+
+Faster whole-table profiling (same results). On the 1.5-million-row test data the largest table
+went from 32 s to 8 s: the check "identifier + reporting month is unique" called Python for every
+cell (15 million calls on a 720,000-row table) and now runs in SQL; empty cells are counted for every
+column in one pass; exact distinct counts are kept for keys, references, codes and columns unique
+in the rows read (other columns show the distinct count of the rows read, their empty count stays
+whole-table); "one value only" is checked on every row only where the rows read show one value.
+
 ## 0.1.7 (6 Nov 2026)
 
 Shaped by the column names and value shapes of nine enterprise extracts (book, book association,

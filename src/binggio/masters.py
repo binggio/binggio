@@ -244,10 +244,19 @@ def _is_person(word):
     return any(p in w for p in PEOPLE)
 
 
-def _candidates(root, profs):
-    """Identifier columns worth considering, with their whole-table distinct values."""
+def _candidates(root, profs, progress=None):
+    """Identifier columns worth considering, with their whole-table distinct values (tables in parallel)."""
+    from binggio import parallel
     out = []
-    for p in profs:
+    for _, res, err in parallel.run(profs, lambda p: _table_candidates(root, p), progress=progress, label=lambda p: p['table']):
+        if err: raise err
+        out.extend(res)
+    return out
+
+
+def _table_candidates(root, p):
+    out = []
+    if True:
         conn = _conn(root, p['connection_id'])
         refs = {g['id_column']: g for g in p.get('groups', []) if g['kind'] == 'reference'}
         period = next((c['name'] for c in p['columns'] if shapes.is_period(c['name'])), None)
@@ -314,11 +323,50 @@ def _pct(x):
     return ('%.1f' % (100 * x)).rstrip('0').rstrip('.')
 
 
-def recommend(root):
-    """Proposed masters, calendar and snapshot tables, from the profiles and whole-table values.
-    Approved and rejected masters are returned as they are; proposals never repeat them."""
+ANALYSIS_VERSION = 1
+
+
+def _state_key(root, profs):
+    import hashlib
+    raw = json.dumps([ANALYSIS_VERSION] + sorted([p['connection_id'], p['table'], p['fingerprint'], p.get('profile_version')] for p in profs),
+                     sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def cached_analysis(root):
+    """The saved analysis when it still matches every table's data and profile; otherwise None."""
     profs = _profiles(root)
-    cands = _candidates(root, profs)
+    key = _state_key(root, profs)
+    with _LOCK, _db(root) as db:
+        db.execute('CREATE TABLE IF NOT EXISTS analysis (k TEXT PRIMARY KEY, v TEXT NOT NULL, built_at TEXT NOT NULL, seconds REAL)')
+        r = db.execute('SELECT v FROM analysis WHERE k=?', (key,)).fetchone()
+    return json.loads(r[0]) if r else None
+
+
+def analysis(root, progress=None):
+    """Which identifiers belong together, worked out from every row of every table. Slow on large
+    data (it reads each identifier column's distinct values), so it is saved and reused until a
+    table's data, its data fixes or its profile change. Decisions do not invalidate it: they are
+    applied when proposals are listed."""
+    import time
+    hit = cached_analysis(root)
+    if hit is not None: return hit
+    started = time.time()
+    profs = _profiles(root)
+    key = _state_key(root, profs)
+    cands = _candidates(root, profs, progress)
+    out = {'masters': _propose(cands, set())}
+    with _LOCK, _db(root) as db:
+        db.execute('CREATE TABLE IF NOT EXISTS analysis (k TEXT PRIMARY KEY, v TEXT NOT NULL, built_at TEXT NOT NULL, seconds REAL)')
+        db.execute('DELETE FROM analysis')
+        db.execute('INSERT INTO analysis VALUES (?,?,?,?)', (key, json.dumps(out), _now(), round(time.time() - started, 1)))
+    return out
+
+
+def recommend(root, progress=None):
+    """Proposed masters, calendar and snapshot tables. Approved and rejected masters are returned as
+    they are; proposals never repeat their columns."""
+    profs = _profiles(root)
     decided = list_masters(root)
     taken = set()
     for m in decided:
@@ -326,6 +374,22 @@ def recommend(root):
             s = m['spec']
             for x in ([s['system_of_record']] if s.get('system_of_record') else []) + s.get('members', []):
                 taken.add((x['connection'], x['table'], x['column']))
+    proposals = []
+    for p in analysis(root, progress)['masters']:
+        spec = p['spec']; sor = spec.get('system_of_record')
+        if sor and (sor['connection'], sor['table'], sor['column']) in taken: continue
+        members = [m for m in spec['members'] if (m['connection'], m['table'], m['column']) not in taken]
+        if not members: continue
+        p = json.loads(json.dumps(p)); p['spec']['members'] = members
+        p['summary']['member_tables'] = len({m['table'] for m in members})
+        proposals.append(p)
+    cal = _calendar_proposal(root, profs, decided)
+    snaps = _snapshot_proposals(root, profs)
+    return {'masters': proposals, 'calendar': cal, 'snapshots': snaps,
+            'decided': [m for m in decided if m['status'] in ('approved', 'rejected')]}
+
+
+def _propose(cands, taken):
     # anchors: the identifier of each table's own rows; the one with most values leads its entity
     # equal counts: the table with fewer rows per identifier and more columns describing it leads (book master: BK_CORE, not BK_ASSO)
     anchors = sorted([c for c in cands if c['own']], key=lambda c: (-c['distinct'], round(c['rows'] / c['distinct'], 1), -c['width'], c['table']))
@@ -401,10 +465,7 @@ def recommend(root):
                                      len({m['table'] for m in members}), name.lower()) if sor else
                                   'No table owns %s, but %d tables mention it; the master lists every value they use.' % (name.lower(), len({m['table'] for m in members})))})
     proposals.sort(key=lambda p: (-len(p['spec']['members']), p['name']))
-    cal = _calendar_proposal(root, profs, decided)
-    snaps = _snapshot_proposals(root, profs)
-    return {'masters': proposals, 'calendar': cal, 'snapshots': snaps,
-            'decided': [m for m in decided if m['status'] in ('approved', 'rejected')]}
+    return proposals
 
 
 def _default_attributes(p, key):
