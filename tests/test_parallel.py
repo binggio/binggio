@@ -11,7 +11,7 @@ from binggio import prepared
 from binggio.profiling import profiler, store as profiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'fixtures'))
-import trading_schema  # noqa: E402
+import retail_schema  # noqa: E402
 
 VOLATILE = ('profiled_at', 'cache_hit', 'stale')
 
@@ -47,7 +47,7 @@ def _run(tmp, src, workers, monkeypatch):
 
 def test_parallel_results_match_one_at_a_time(tmp_path, monkeypatch):
     src = tmp_path / 'src'
-    trading_schema.generate(src, scale=2)
+    retail_schema.generate(src, scale=2)
     monkeypatch.setattr(profiler, 'SPLIT_ROWS', 500)       # also split the columns of each table between threads
     one = _run(tmp_path / 'one', src, 1, monkeypatch)
     many = _run(tmp_path / 'many', src, 4, monkeypatch)

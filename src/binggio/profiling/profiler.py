@@ -25,7 +25,7 @@ from binggio.catalog.connectors import (ConnectionErrorSafe, MAX_CSV_BYTES,
     MAX_COLUMNS, _quote_identifier, _readonly, _unwrapped_row,
     list_sqlite_tables, resolve_source)
 
-VERSION = '5.3.0'
+VERSION = '5.3.1'
 SAMPLE_LIMIT = 2500
 MISSING = {'', 'null', 'none', 'n/a', 'na', 'nan', '?'}
 DATE_FORMATS = ('%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M',
@@ -533,6 +533,7 @@ def _needs_exact_distinct(c):
     count of the rows read; their empty count and "one value only" are still whole-table."""
     from . import shapes
     n=c['name']
+    if shapes.is_period(n):return True          # snapshot periods: how many periods decides how totals work
     if shapes.is_version(n) or shapes.is_domain(n) or shapes.is_email(n):return False
     if c['semantic_role_candidate'] in ('PRIMARY_KEY_CANDIDATE','FOREIGN_KEY_CANDIDATE','IDENTIFIER'):return True
     if shapes.id_ending(n) or shapes.is_code(n):return True
@@ -591,7 +592,10 @@ def _full_counts(project, connection, table, header, cols=None):
     for _,res,err in parallel.run(chunks(names,threads) if names else [],empties,n_workers=threads):
         if err:raise err
         out.update(res)
-    exact=[c for c in names if c in by and _needs_exact_distinct(by[c]) and out[c][0]>0 and not out[c][2]] if cols else names
+    # a column that showed one value in the rows read but has more on all rows (a file sorted by month)
+    # gets its real distinct count too, or it would look like a column with no information
+    exact=[c for c in names if c in by and (_needs_exact_distinct(by[c]) or by[c]['distinct_count']<=1)
+           and out[c][0]>0 and not out[c][2]] if cols else names
     # each COUNT(DISTINCT) keeps its own sorted list, so a few columns per query
     parts=[exact[i:i+4] for i in range(0,len(exact),4)] if threads>1 else [exact[i:i+16] for i in range(0,len(exact),16)]
     for _,res,err in parallel.run(parts,distincts,n_workers=threads):

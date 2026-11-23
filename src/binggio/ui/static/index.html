@@ -128,6 +128,7 @@ ol.steps li.now::before{border-color:var(--blue);color:var(--blue)}
 @media (prefers-reduced-motion:reduce){.job li.running::before{animation:none}}
 .err-box{background:var(--red2);color:var(--red);border-radius:8px;padding:10px 12px;margin:10px 0}
 .note-box{background:var(--blue2);color:#2e2690;border-radius:8px;padding:10px 12px;margin:10px 0}
+.warn-text{color:var(--amber);font-weight:600}
 .warn-box{background:var(--amber2);color:#7a4a08;border-radius:8px;padding:10px 12px;margin:10px 0}
 .split{display:grid;grid-template-columns:280px minmax(0,1fr);gap:16px;align-items:start}
 .split>*,.grid2>*{min-width:0}
@@ -448,7 +449,7 @@ function bindDemoBand(el) { $$('[data-own-data]', el).forEach(b => b.onclick = (
 function renderTop() {
   const el = $('#top-chips'); if (!el) return;
   const m = S.state.model, by = reviewer();
-  el.innerHTML = `<span class="chip ${m.configured ? 'ok' : 'warn'}" id="chip-model" title="Model used to read questions"><span class="dot"></span>${m.configured ? 'Model ready' : 'No model key'}</span>
+  el.innerHTML = `<span class="chip ${m.configured ? 'ok' : 'warn'}" id="chip-model" title="${esc(m.configured ? m.provider_name + ' · ' + m.model : (m.problem || 'Model used to read questions'))}"><span class="dot"></span>${m.configured ? 'Model ready' : 'No model set'}</span>
     <span class="chip ${by ? 'ok' : 'warn'}" id="chip-by"><span class="dot"></span>${by ? 'Reviewing as ' + esc(by) : 'Set your name'}</span>`;
   $('#chip-model').onclick = () => location.hash = '#settings';
   $('#chip-by').onclick = async () => { const n = await askText('Your name', 'Decisions you make are recorded with this name.', 'Name', by); if (n) { store.set('by', n); renderTop(); } };
@@ -1078,7 +1079,7 @@ async function reviewMasters() {
   const d = await api('/api/masters');
   if (!$('#rv')) return;
   if (d.computing) {
-    el.innerHTML = `<div class="panel"><div class="head"><h2>Masters</h2></div><p class="muted" style="margin-top:0">Binggio is reading the identifiers of every table, on every row, to see which ones refer to the same employee, book or desk. This runs once after the data changes; the page fills in when it is done.</p><div id="ms-wait"></div></div>`;
+    el.innerHTML = `<div class="panel"><div class="head"><h2>Masters</h2></div><p class="muted" style="margin-top:0">Binggio is reading the identifiers of every table, on every row, to see which ones refer to the same staff member, store or product. This runs once after the data changes; the page fills in when it is done.</p><div id="ms-wait"></div></div>`;
     watchJob(d.job, $('#ms-wait'), j => { if (S.cur === 'review' && $('#rv')) { if (j.status === 'done') reviewMasters().catch(fail); } });
     return;
   }
@@ -1092,13 +1093,13 @@ async function reviewMasters() {
       : `<p class="small">${esc(m.why || '')}</p>
         ${m.summary ? `<div class="mstats"><span>${fmt(m.summary.distinct)} different ${esc(m.name.toLowerCase())}s</span>${sor ? `<span>system of record: ${esc(sor.table)}.${esc(sor.column)}</span>` : ''}
           ${m.summary.not_in_system_of_record ? `<span style="color:var(--amber)">${fmt(m.summary.not_in_system_of_record)} not in the system of record</span>` : ''}</div>` : ''}
-        <p class="small muted">${fmt((sp.members || []).length)} column(s): ${esc((sp.members || []).slice(0, 6).map(x => x.table.replace(/-YTD_\d+$/i, '') + '.' + x.column).join(', '))}${(sp.members || []).length > 6 ? '…' : ''}</p>`}
+        <p class="small muted">${fmt((sp.members || []).length)} column(s): ${esc((sp.members || []).slice(0, 6).map(x => x.table + '.' + x.column).join(', '))}${(sp.members || []).length > 6 ? '…' : ''}</p>`}
       ${ro ? '' : `<div class="row" style="margin-top:8px">${approved ? `<button class="btn sm" data-medit="${i}">Change</button><button class="btn ghost sm" data-mwd="${i}">Withdraw</button>`
         : `<button class="btn sm primary" data-mrev="${i}">Review</button><button class="btn ghost sm" data-mrej="${i}">Not a master</button>`}</div>`}</div>`;
   };
   const props = [...d.proposals, ...(d.calendar ? [d.calendar] : [])];
   el.innerHTML = `<div class="panel"><div class="head"><h2>Masters</h2></div>
-      <p class="muted" style="margin-top:0">A master is one row per employee, book, desk and so on: the distinct list of an identifier, so it is unique even when no column of your tables is (the same book once per month and per version). Binggio proposes them from the identifiers it found on every row; you decide which columns belong. Approved masters are built as tables in the source <b>Binggio masters</b>, rebuilt on every refresh, and every member column links to them many-to-one. Nothing is built or linked until you approve it.</p>
+      <p class="muted" style="margin-top:0">A master is one row per staff member, store, product and so on: the distinct list of an identifier, so it is unique even when no column of your tables is (the same store once per month and per version). Binggio proposes them from the identifiers it found on every row; you decide which columns belong. Approved masters are built as tables in the source <b>Binggio masters</b>, rebuilt on every refresh, and every member column links to them many-to-one. Nothing is built or linked until you approve it.</p>
       ${d.approved.length ? `<h3>Approved</h3><div class="mcards">${d.approved.map((m, i) => card(m, i, true)).join('')}</div>` : ''}
       <h3 style="margin-top:16px">Proposed</h3>${props.length ? `<div class="mcards">${props.map((m, i) => card(m, i, false)).join('')}</div>` : '<p class="muted">No new masters to propose. Every identifier that more than one table uses is already in a master, or was set aside.</p>'}
       ${d.rejected.length ? `<details style="margin-top:12px"><summary class="small">${d.rejected.length} set aside</summary><ul class="small">${d.rejected.map((m, i) => `<li>${esc(m.name)}: ${esc(m.note || '')} (${esc(m.actor || '')}) ${ro ? '' : `<a href="#" data-mre="${i}">Reconsider</a>`}</li>`).join('')}</ul></details>` : ''}</div>
@@ -1171,7 +1172,7 @@ async function masterModal(m, onDone) {
       ${time ? '' : `<div class="row" style="margin-top:8px"><select id="ms-at" aria-label="Table" style="flex:1;min-width:160px"><option value="">Add another column…</option>${all.filter(t => !/^MASTER_/.test(t.table)).map(t => `<option value="${esc(t.connection_id)}|${esc(t.table)}">${esc(t.table)}</option>`).join('')}</select>
         <select id="ms-ac" aria-label="Column" style="flex:1;min-width:160px" disabled></select><button class="btn sm" id="ms-add" disabled>Check and add</button></div><div id="ms-addmsg"></div>`}
       ${time ? '' : '<label class="small" style="display:block;margin-top:10px"><input type="checkbox" id="ms-applinks" checked> Also approve the links from these columns to the master (many rows to one; each is checked on every row first)</label>'}
-      <label class="f" style="margin-top:8px">Why this is right (kept with the decision)<textarea id="ms-note" rows="2" maxlength="600" placeholder="e.g. trader, book runner and controller ids are ERDS employee ids"></textarea></label>
+      <label class="f" style="margin-top:8px">Why this is right (kept with the decision)<textarea id="ms-note" rows="2" maxlength="600" placeholder="e.g. buyer, store manager and area manager ids are staff ids"></textarea></label>
       <div id="ms-job"></div>`;
     const done = modal((m.status === 'approved' ? 'Change master: ' : 'Review master: ') + m.name, body, [['Cancel', '', null], ['Approve and build', 'primary', null]]);
     const bg = [...document.querySelectorAll('.modal-bg')].pop();
@@ -2018,7 +2019,7 @@ async function pageAsk() {
   const p = setPage('ask', 'Ask');
   const st = S.state, samples = st.samples ? (await api('/api/samples')).items : [];
   p.innerHTML = `<div class="ask"><div>
-      ${!st.model.configured ? `<div class="warn-box">To ask in your own words, Binggio needs a model key. <a href="#settings">Add a key</a>, or set BINGGIO_LLM_API_KEY before starting.${samples.length ? ' The sample questions on the right work without one.' : ''}</div>` : ''}
+      ${!st.model.configured ? `<div class="warn-box">To ask in your own words, Binggio needs a model: any provider (OpenAI, Claude, Gemini, Azure, Mistral, a model on this computer …). ${esc(st.model.problem || '')} <a href="#settings">Choose one in Settings</a>.${samples.length ? ' The sample questions on the right work without one.' : ''}</div>` : ''}
       <div class="thread" id="thread">${THREAD.length ? '' : `<div class="empty" id="ask-empty"><h2>Ask about your approved data</h2><p>Follow-up questions such as "which of these…" work on the previous answer.</p></div>`}</div>
       <div class="composer"><textarea id="qbox" placeholder="Ask a question about your approved data" aria-label="Question"></textarea>
         <button class="btn primary" id="qsend">Ask</button></div></div>
@@ -2106,11 +2107,16 @@ async function pageSettings() {
   p.innerHTML = `<div class="grid2"><div class="panel"><h2>Your name</h2><p class="muted">Recorded with every approval, rejection and revocation you make in this browser.</p>
       <div class="row"><input type="text" id="s-by" value="${esc(reviewer())}" style="flex:1"><button class="btn primary" id="s-by-save">Save</button></div></div>
     <div class="panel"><h2>Model for questions in your own words</h2>
-      <p class="muted">Binggio sends the question and the names of approved tables and columns to the model, never your data rows. ${m.configured ? `A key is set (${esc(m.from || 'environment')}).` : 'No key is set.'}</p>
-      <div class="fields" style="grid-template-columns:1fr"><label class="f">API key<input type="password" id="s-key" placeholder="${m.configured ? 'Replace the key' : 'Paste your key'}" autocomplete="off"></label>
-      <label class="f">Model<input type="text" id="s-model" value="${esc(m.model)}"></label></div>
-      <div class="row"><button class="btn primary" id="s-key-save">Use this key</button>${m.from === 'this session' ? '<button class="btn" id="s-key-clear">Forget the key</button>' : ''}</div>
-      <p class="muted small" style="margin-top:10px">The key stays in memory until you close Binggio; it is never written to disk. To keep one, set BINGGIO_LLM_API_KEY before running binggio ui.</p></div></div>
+      <p class="muted">Any model from any provider. Binggio sends the question and the names of approved tables and columns, never your data rows, and checks every plan the model writes before running it. ${m.configured ? `In use: <b>${esc(m.provider_name)}</b> · <b>${esc(m.model)}</b>${m.from ? ' (key from ' + esc(m.from) + ')' : m.local ? ' (on this computer, no key)' : ''}.` : `<span class="warn-text">${esc(m.problem || 'Not set up yet.')}</span>`}</p>
+      <div class="fields" style="grid-template-columns:1fr">
+        <label class="f">Provider<select id="s-prov">${Object.entries(m.providers).map(([k, v]) => `<option value="${k}" ${k === m.provider ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
+        <label class="f" id="s-url-l">Address of the service<input type="text" id="s-url" value="${esc(m.base_url || '')}" placeholder="" autocomplete="off"></label>
+        <label class="f">API key<input type="password" id="s-key" placeholder="${m.has_key ? 'Replace the key' : 'Paste your key'}" autocomplete="off"></label>
+        <label class="f">Model<input type="text" id="s-model" value="${esc(m.model || '')}" list="s-models" placeholder="" autocomplete="off"><datalist id="s-models"></datalist></label></div>
+      <p class="muted small" id="s-hint"></p>
+      <div class="row"><button class="btn primary" id="s-key-save">Use these settings</button><button class="btn" id="s-test" ${m.configured ? '' : 'disabled'}>Check the connection</button>${m.from === 'this session' ? '<button class="btn" id="s-key-clear">Forget the key</button>' : ''}</div>
+      <div id="s-test-out"></div>
+      <p class="muted small" style="margin-top:10px">Settings made here stay in memory until you close Binggio; the key is never written to disk. To keep them, set BINGGIO_LLM_PROVIDER, BINGGIO_LLM_MODEL, BINGGIO_LLM_API_KEY (and BINGGIO_LLM_BASE_URL where needed) before running binggio ui.</p></div></div>
     <div class="panel"><h2>Licence</h2><p>Binggio ${esc(S.state.version)} is free software under the GNU Affero General Public License, version 3 or later. You may use, study, share and change it. If you change it and let others use it over a network, you must offer them your changed source code.</p>
       <p class="muted">The licence text is in the LICENSE file of the source code. For use under other terms, a commercial licence is available from Ashish Kumar.</p>
       <p>Feedback, questions, commercial licences and partnerships: <a href="#" data-mail="Binggio feedback">${CONTACT}</a>. Security issues: <a href="#" data-mail="Security">${CONTACT}</a> with "Security" in the subject.</p>
@@ -2118,8 +2124,37 @@ async function pageSettings() {
         <div class="panel"><h2>Workspace</h2><p><b>${esc(S.state.workspace)}</b></p><p class="muted">Sources, profiles, approvals and the audit trail are kept in this folder. Copy or move it as a whole.</p>
       <div class="row"><button class="btn" id="s-switch">Switch workspace</button><button class="btn" id="s-reprofile">Profile and discover again</button></div><div id="s-job"></div></div>`;
   $('#s-by-save').onclick = () => { store.set('by', $('#s-by').value.trim()); renderTop(); toast('Saved'); };
+  // what each provider needs; model names are examples only: any name the provider accepts works
+  const PROV = {
+    openai: {url: false, ph: 'gpt-4.1-mini', models: ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o'], hint: 'Key from platform.openai.com.'},
+    anthropic: {url: false, ph: 'the Claude model name', models: [], hint: 'Key from console.anthropic.com; use a model name from Anthropic\'s model list.'},
+    gemini: {url: false, ph: 'gemini-2.5-flash', models: ['gemini-2.5-flash', 'gemini-2.5-pro'], hint: 'Key from aistudio.google.com (Google AI Studio); use a model name from Google\'s model list.'},
+    azure: {url: true, uph: 'https://NAME.openai.azure.com', ph: 'your deployment name', models: [], hint: 'The address of your Azure OpenAI resource, its key, and the deployment name as the model.'},
+    compatible: {url: true, uph: 'https://api.mistral.ai/v1  or  http://localhost:11434/v1', ph: 'the model name', models: [],
+      hint: 'Any service with an OpenAI-style chat API: Mistral, Groq, OpenRouter, DeepSeek, Together, a company gateway, or a model on this computer (Ollama, LM Studio). A model on this computer needs no key.'},
+  };
+  const drawProv = () => {
+    const k = $('#s-prov').value, c = PROV[k] || PROV.openai;
+    $('#s-url-l').style.display = c.url ? '' : 'none'; $('#s-url').placeholder = c.uph || '';
+    $('#s-model').placeholder = c.ph; $('#s-hint').textContent = c.hint;
+    $('#s-models').innerHTML = c.models.map(x => `<option value="${x}">`).join('');
+  };
+  $('#s-prov').onchange = () => { if ($('#s-prov').value !== m.provider) $('#s-model').value = ''; drawProv(); };
+  drawProv();
   $('#s-key-save').onclick = async () => {
-    try { S.state.model = await api('/api/settings/model', {key: $('#s-key').value, model: $('#s-model').value}); renderTop(); toast(S.state.model.configured ? 'Key in use' : 'Saved'); pageSettings(); } catch (e) { fail(e); }
+    try {
+      const prov = $('#s-prov').value;
+      S.state.model = await api('/api/settings/model', {provider: prov, key: $('#s-key').value, model: $('#s-model').value,
+        base_url: PROV[prov].url ? $('#s-url').value : ''});
+      renderTop(); toast(S.state.model.configured ? 'Model ready' : 'Saved'); pageSettings();
+    } catch (e) { fail(e); }
+  };
+  $('#s-test').onclick = async () => {
+    const out = $('#s-test-out'); out.innerHTML = '<div class="note-box">Sending one short test message…</div>';
+    try {
+      const r = await api('/api/settings/model', {test: true});
+      out.innerHTML = r.test === 'ok' ? `<div class="note-box">Connected: ${esc(r.provider_name)} · ${esc(r.model)} answered.</div>` : `<div class="err-box">${esc(r.test_error || 'The test failed')}</div>`;
+    } catch (e) { out.innerHTML = `<div class="err-box">${esc(e.message)}</div>`; }
   };
   if ($('#s-key-clear')) $('#s-key-clear').onclick = async () => { S.state.model = await api('/api/settings/model', {clear: true}); renderTop(); pageSettings(); };
   $('#s-switch').onclick = () => startScreen(true);

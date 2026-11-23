@@ -48,6 +48,19 @@ def check(cond, msg):
     if not cond: raise Fail(msg)
 
 
+# every name a model key may have (any provider); the journeys pass it on as BINGGIO_LLM_API_KEY
+KEY_NAMES = ('BINGGIO_LLM_API_KEY', 'BINGGIO_PHASE10_LLM_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY',
+             'GOOGLE_API_KEY', 'AZURE_OPENAI_API_KEY')
+
+
+def model_key():
+    """The model key from any provider's variable; 'local' for a model on this computer, which needs none."""
+    for k in KEY_NAMES:
+        if os.environ.get(k): return os.environ[k]
+    url = os.environ.get('BINGGIO_LLM_BASE_URL', '')
+    return 'local' if any(h in url for h in ('localhost', '127.0.0.1')) else None
+
+
 class Env:
     """A fresh 'user machine': virtual environment + home folder + working folder."""
 
@@ -69,8 +82,7 @@ class Env:
         return self.venv / ('Scripts/binggio.exe' if WINDOWS else 'bin/binggio')
 
     def env(self, extra=None):
-        e = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'BINGGIO_LLM_API_KEY', 'OPENAI_API_KEY',
-                                                               'BINGGIO_PHASE10_LLM_API_KEY', 'VIRTUAL_ENV')}
+        e = {k: v for k, v in os.environ.items() if k not in ('PYTHONPATH', 'VIRTUAL_ENV') + KEY_NAMES}
         e.update({'HOME': str(self.home), 'USERPROFILE': str(self.home), 'PYTHONIOENCODING': 'utf-8', 'PYTHONUTF8': '1'})
         e.update(extra or {})
         return e
@@ -386,8 +398,8 @@ def j_big(env, ctx):
 
 def j_model(env, ctx):
     if not ctx['with_model']: return 'SKIP: run with --with-model to ask in plain words (uses ~15 model calls)'
-    key = os.environ.get('BINGGIO_LLM_API_KEY') or os.environ.get('OPENAI_API_KEY')
-    check(key, 'set BINGGIO_LLM_API_KEY to run the model journey')
+    key = model_key()
+    check(key, 'set up a model to run the model journey (BINGGIO_LLM_API_KEY, or a model on this computer)')
     questions = [
         ('Which customers in the PREMIUM segment have a delinquent loan and have also raised a complaint that is currently ESCALATED? Show their customer ID and name.', 'Q1'),
         ('Which delinquent loans have an outstanding balance above 5,000,000 and belong to customers in the PREMIUM segment? Show the loan ID, loan product and outstanding balance, with the largest balance first.', 'Q2'),

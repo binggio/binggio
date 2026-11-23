@@ -115,10 +115,12 @@ def _read_recent():
 # ====================================================================== helpers
 
 def _model_state():
-    from binggio.engine import core
-    src = next((k for k in ('BINGGIO_LLM_API_KEY', 'BINGGIO_PHASE10_LLM_API_KEY', 'OPENAI_API_KEY') if os.environ.get(k)), None)
-    return {'configured': bool(core._llm_enabled()), 'from': 'this session' if os.environ.get('_BINGGIO_UI_KEY') else (src and 'environment variable ' + src),
-            'model': os.environ.get('BINGGIO_LLM_MODEL', 'gpt-4.1-mini')}
+    from binggio import llm
+    st = llm.state()
+    src = llm.key_source()
+    st['from'] = 'this session' if os.environ.get('_BINGGIO_UI_KEY') and src == 'BINGGIO_LLM_API_KEY' else (src and 'environment variable ' + src)
+    st['has_key'] = bool(src)
+    return st
 
 
 def _source_kind(ws, conn):
@@ -199,12 +201,35 @@ def api(app: App, method, path, q, body):
         return _browse(q.get('path') or str(Path.home()), q.get('want', 'dir'), q.get('ext', ''))
 
     if path == '/api/settings/model' and method == 'POST':
+        # kept in this process's memory only: nothing here is written to disk
+        from binggio import llm
         key = (body.get('key') or '').strip()
         if body.get('clear'):
             if os.environ.pop('_BINGGIO_UI_KEY', None): os.environ.pop('BINGGIO_LLM_API_KEY', None)
-        elif key:
+            return _model_state()
+        if body.get('test'):
+            try:
+                llm.complete_text('Reply with the single word OK.', timeout=30)
+                return {**_model_state(), 'test': 'ok'}
+            except llm.ModelError as e:
+                return {**_model_state(), 'test': 'failed', 'test_error': str(e)}
+        if 'provider' in body:
+            p = (body.get('provider') or '').strip().lower()
+            if p and p not in llm.PROVIDERS: raise ApiError('Unknown provider')
+            if p: os.environ['BINGGIO_LLM_PROVIDER'] = p
+            else: os.environ.pop('BINGGIO_LLM_PROVIDER', None)
+        if 'base_url' in body:
+            u = (body.get('base_url') or '').strip().rstrip('/')
+            if u and not u.startswith(('https://', 'http://')): raise ApiError('The address must start with https:// or http://')
+            if u: os.environ['BINGGIO_LLM_BASE_URL'] = u
+            else: os.environ.pop('BINGGIO_LLM_BASE_URL', None)
+        if body.get('api_version'): os.environ['BINGGIO_LLM_API_VERSION'] = body['api_version'].strip()
+        if key:
             os.environ['BINGGIO_LLM_API_KEY'] = key; os.environ['_BINGGIO_UI_KEY'] = '1'
-        if body.get('model'): os.environ['BINGGIO_LLM_MODEL'] = body['model'].strip()
+        if 'model' in body:
+            m = (body.get('model') or '').strip()
+            if m: os.environ['BINGGIO_LLM_MODEL'] = m
+            else: os.environ.pop('BINGGIO_LLM_MODEL', None)
         return _model_state()
 
     if path.startswith('/api/jobs/') and method == 'GET':

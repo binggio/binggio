@@ -2,13 +2,13 @@
 # Copyright (C) 2026 Ashish Kumar
 """What a column's name says, and the groups columns form inside a table.
 
-Enterprise extracts often write names as one lowercase word (traderidentifierid,
-accountingcategorycode, isleaf). These helpers read the end of such names (id, code, version,
+Enterprise extracts often write names as one lowercase word (manageridentifierid,
+taxcategorycode, isleaf). These helpers read the end of such names (id, code, version,
 domain, flag, email ...) and find the structures a table is made of:
 
 * reference   - a reference stored as …domain / …id / …version (one record, its system, its version)
 * person      - a block of columns about one person (…firstname, …lastname, …emailaddress, …location)
-* code_name   - a code with its name or description (businessownercode / businessownername)
+* code_name   - a code with its name or description (formatcode / formatname)
 * hierarchy   - a path flattened into numbered levels (level1id … level13id, cc_l1code … cc_l10code)
 * optional    - columns that are empty on the same rows (an optional part of the record)
 
@@ -33,7 +33,7 @@ def low(name: str) -> str:
 
 
 def flat(name: str) -> str:
-    """The name without separators: trader_identifier_id -> traderidentifierid."""
+    """The name without separators: manager_identifier_id -> manageridentifierid."""
     return re.sub(r'[^a-z0-9]', '', low(name))
 
 
@@ -71,7 +71,7 @@ def is_code(name: str) -> bool:
 
 
 def id_ending(name: str) -> str | None:
-    """'id' for traderidentifierid, 'key' for customer_key ...; None when the name is not identifier-like."""
+    """'id' for manageridentifierid, 'key' for customer_key ...; None when the name is not identifier-like."""
     f = flat(name)
     if f.endswith(_NOT_ID) or is_email(name): return None
     for e in ID_ENDINGS:
@@ -80,7 +80,7 @@ def id_ending(name: str) -> str | None:
 
 
 def subject(name: str) -> str:
-    """The thing a reference names: traderidentifierid -> trader, employee_id -> employee,
+    """The thing a reference names: manageridentifierid -> manager, employee_id -> employee,
     level10id -> level10, identifierid -> '' (the table's own identifier)."""
     f = flat(name)
     for e in ('identifierdomain', 'identifierversion', 'identifierid', 'identifier', 'domain', 'version', 'uuid', 'guid', 'id', 'key',

@@ -206,7 +206,7 @@ class Agent:
         self.results = {}
         self.ctx = {}
         self.app = None
-        self.key = os.environ.get('BINGGIO_LLM_API_KEY') or os.environ.get('OPENAI_API_KEY')
+        self.key = simulate.model_key()
 
     # --------------------------------------------------------------- bookkeeping
     def run(self, cid, fn, *a):
@@ -1052,17 +1052,14 @@ class Agent:
 # ====================================================================== optional second opinion
 
 def judge(key, case, result):
-    model = os.environ.get('BINGGIO_LLM_MODEL', 'gpt-4.1-mini')
+    """Optional second opinion from whichever model is set up (any provider, see binggio.llm)."""
+    from binggio import llm
     prompt = ('You review an automated acceptance test of a data question-answering tool that must never guess. '
               'Say in two sentences whether the behaviour looks acceptable for release, and start with one word: '
               'ACCEPTABLE, UNACCEPTABLE or UNSURE.\n\nCase: %s\nExpected: %s\nWhat happened: %s\nDetails: %s'
               % (case['title'], case['expected'], result['detail'], json.dumps(result.get('evidence'), default=str)[:6000]))
-    body = json.dumps({'model': model, 'temperature': 0, 'messages': [{'role': 'user', 'content': prompt}]}).encode()
-    req = urllib.request.Request('https://api.openai.com/v1/chat/completions', data=body,
-                                 headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.loads(r.read())['choices'][0]['message']['content'].strip()
+        return llm.complete_text(prompt, timeout=60)
     except Exception as e:
         return 'second opinion unavailable: %s' % type(e).__name__
 

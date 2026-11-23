@@ -61,7 +61,7 @@ def parse_number(value):
 
 def _date_field(info):
     return str(info.get('role','')).upper()=='DATE' or str(info.get('observed_type','')).lower()=='date'
-MODEL_ALLOWLIST={'gpt-4.1-mini','gpt-4.1','gpt-4o-mini','gpt-4o'}
+# Any model from any provider (binggio.llm); an organisation can limit models with BINGGIO_LLM_ALLOWED_MODELS.
 MAX_RESULT=200
 QUERY_SECONDS=120  # an answer that takes longer is stopped and reported, never returned partly
 MAX_SOURCE_ROWS=1_000_000  # rows per source table read for an answer (profiling uses a smaller sample)
@@ -483,14 +483,13 @@ def validate_status_literals(plan,u,domains):
 
 
 def _llm_key():
-    # BINGGIO_LLM_API_KEY is the package name; the POC names and OPENAI_API_KEY are accepted.
-    for k in ('BINGGIO_LLM_API_KEY','BINGGIO_PHASE10_LLM_API_KEY','OPENAI_API_KEY'):
-        if os.environ.get(k):return os.environ[k]
-    return ''
+    from binggio import llm
+    return llm._raw_key()
 
 
 def _llm_enabled():
-    return bool(_llm_key())
+    from binggio import llm
+    return llm.enabled()
 
 
 
@@ -641,11 +640,9 @@ def schema_enum_count(schema):
     return 0
 
 
-_SECRET=re.compile(r'(sk-[A-Za-z0-9_-]{6,}|Bearer\s+[A-Za-z0-9._-]+)')
-
-
 def _redact(text):
-    return _SECRET.sub('[REDACTED]',str(text))
+    from binggio import llm
+    return llm.redact(text)
 
 
 def _api_error_summary(e):
@@ -1144,9 +1141,9 @@ def interpret(question,u,prior=None,project=None):
     term_tables={u.terms()[t]['table_id'] for t in mentioned}
     if mentioned and res['focus'] is not None:res['focus']|=term_tables  # no concept named: whole catalog stays (v18.3.1)
     allowed=res['focus'] if res['focus'] is not None else (set(u.tables)-u.secondary_tables())|set(res['named_tables'])|term_tables
-    if not _llm_enabled():raise Unrecognized('Asking questions needs a model key: set BINGGIO_LLM_API_KEY (or OPENAI_API_KEY)')
-    model=os.environ.get('BINGGIO_LLM_MODEL',os.environ.get('BINGGIO_UNIFIED_V14_MODEL',os.environ.get('BINGGIO_PHASE10_LLM_MODEL','gpt-4.1-mini')))
-    _need(model in MODEL_ALLOWLIST,'LLM model not in approved allowlist')
+    from binggio import llm
+    why=llm.problem()
+    if why:raise Unrecognized(why)
     domains=observed_status_domains(project,u)
     catalog=u.catalog(focus=res['focus'],observed_status_domains=domains,concepts=concept_context(u,res) or None,
                       terms=term_context(u,mentioned) or None)
@@ -1205,20 +1202,12 @@ def interpret(question,u,prior=None,project=None):
     # fallback engine. Never remove invalid plan clauses without consulting the
     # user's original question; execution happens only after full validation.
     messages=list(base_messages)
-    response_format={'type':'json_schema','json_schema':{'name':'binggio_canonical_plan_v17',
-                       'strict':True,'schema':canonical_response_schema(u)}}
+    schema=canonical_response_schema(u)
     for attempt in range(2):
-        payload={'model':model,'temperature':0,'response_format':response_format,'messages':messages}
-        data=json.dumps(payload).encode('utf-8')
-        req=urllib.request.Request('https://api.openai.com/v1/chat/completions',data=data,headers={
-           'Authorization':'Bearer '+_llm_key(),
-           'Content-Type':'application/json'},method='POST')
-        try:
-            with urllib.request.urlopen(req,timeout=35) as resp:
-                obj=json.load(resp)
-            result=json.loads(obj['choices'][0]['message']['content'])
-        except Exception as e:
-            raise Unrecognized('Canonical interpretation unavailable: '+_api_error_summary(e)) from e
+        # any provider (binggio.llm); whatever model writes the plan, validate() below decides
+        try:result=llm.complete_json(messages,schema,'binggio_canonical_plan_v17')
+        except llm.ModelError as e:
+            raise Unrecognized('Canonical interpretation unavailable: '+str(e)) from e
         try:raw=_unwrap_model_result(result)
         except Blocked as e:
             # v18.3.1: the model may refuse because it thinks it must define the term or

@@ -15,6 +15,33 @@ modified). Eight parts.
 | 7. The app | `binggio ui`: start screen, data sources (CSV, Excel, SQLite, SQL Server, Oracle, PostgreSQL), explore, onboarding, review (roles, relationships, concepts, terms: approve / reject / revoke / reopen, bulk), relationship map, ask with provenance, activity, settings. Standard library server on 127.0.0.1 with a session token and host check; secrets in memory only | `test_ui` (token and host checks, overview, 10 sample questions match the verified answers, full new-user flow); simulator journey `web app` (installed command, API, and all 11 screens in a browser when Playwright is present) |
 | 8. Speed | Within one status, review or answer call each table's profile and freshness are worked out once (`evaluation_scope`); nothing is reused across calls | demo `status`: 8.4 s -> 0.7 s, identical results |
 
+## 0.1.10 (unreleased)
+
+Any model for questions in your own words (`binggio/llm.py`). Providers: OpenAI (still the default,
+same settings as before), Anthropic Claude (its own API; the plan is returned through a tool with the
+plan schema), Google Gemini (Google's OpenAI-compatible address), Azure OpenAI (deployment address,
+`api-key` header), and any OpenAI-style service at `BINGGIO_LLM_BASE_URL`, including a model on this
+computer, which needs no key. The fixed list of four GPT models is gone: any model name works, and
+`BINGGIO_LLM_ALLOWED_MODELS` lets an organisation limit the choice. Where a service does not support
+the strict JSON schema, Binggio uses JSON mode, then the schema in the instructions, and remembers
+what worked for the session; a service that refuses a temperature setting is asked again without
+one. The plan is checked by `validate()` exactly as before, whatever wrote it. Settings has a
+provider choice, an address field where needed, and a "Check the connection" button (one short
+model call, only when pressed). Error messages name the provider and the likely cause (refused key,
+unknown model, rate limit) and never contain the key. The acceptance tests' second opinion uses the
+same settings. `tests/test_llm.py` checks each provider's request against local stand-ins and asks
+a demo question end to end through a Claude-style service.
+
+Test data and examples use a fictional retail chain only (`tests/fixtures/retail_schema.py`: stores,
+staff, districts, assortments, zones, products); the earlier test generator and the examples in
+comments are replaced; the Masters page and README speak of staff, stores and products.
+
+One fix (profiler 5.3.1): when a file is sorted by month, the first 2,500 rows read can all be the
+same month. The all-rows check already saw more than one value, but the column kept the sample's
+distinct count of 1 and was set aside as "no information", hiding the reporting month. Such columns,
+and every period column, now get their distinct count from all rows
+(`test_a_file_sorted_by_month_keeps_its_months`). Profiles made by 5.3.0 are refreshed on the next run.
+
 ## 0.1.9 (6 Nov 2026)
 
 All tables at once. Tables are prepared in worker processes (one table each, started with
@@ -51,13 +78,14 @@ whole-table); "one value only" is checked on every row only where the rows read 
 
 ## 0.1.7 (6 Nov 2026)
 
-Shaped by the column names and value shapes of nine enterprise extracts (book, book association,
-book hierarchy, desk, portfolio, reporting hierarchy, employee, matrix assignment, instrument).
-Test data is random (`tests/fixtures/trading_schema.py`); no real values were used.
+Built for the way large organisations export data: monthly snapshots, references stored as
+domain / id / version, people stored as blocks of columns, flattened hierarchies. Tested on nine
+tables of a fictional retail chain with those problems (`tests/fixtures/retail_schema.py`): every
+name and value is invented.
 
 | What | 0.1.6 | 0.1.7 |
 | --- | --- | --- |
-| Relationships found on the nine-table test data | 0 (no column unique: one row per record per month and version) | 8 masters proposed (Employee with 13 member columns in 6 tables, Book, Desk, Portfolio, UBR, Cost centre, Legal entity, Calendar); 40 links once approved |
+| Relationships found on the nine-table test data | 0 (no column unique: one row per record per month and version) | 8 masters proposed (Staff with 13 member columns in 6 tables, Store, District, Assortment, Zone, Cost centre, Legal entity, Calendar); 40 links once approved |
 | Distinct / empty counts | first 2,500 rows | every row (1.5 million rows profiled in 51 s, prepared copies included) |
 | Versions, levels, codes, flags as Measure | yes | no |
 | Approvals after a profiler improvement | could go stale | kept: column approvals bind to the column and the table's content (signature rule 4; older workspaces are migrated before re-profiling, only approvals current under the old rule are carried) |

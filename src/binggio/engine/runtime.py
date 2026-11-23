@@ -75,8 +75,9 @@ def execute_question(project, session_id, question, referenced_turn_id=None, can
         except core.Blocked as e:raise PipelineFailure('validation','PLAN_REJECTED',str(e)) from e
     else:
         if not core._llm_enabled():
+            from binggio import llm
             raise PipelineFailure('interpretation','MODEL_NOT_CONFIGURED',
-                'Asking questions needs a model key. Set BINGGIO_LLM_API_KEY (or OPENAI_API_KEY) and try again.')
+                (llm.problem() or 'Asking questions needs a model')+'. Any provider works: see Settings, or binggio --help.')
         unsupported_class=getattr(core,'UnsupportedClass',())
         try:plan=core.interpret(question,universe,prior,project=project)
         except core.InvalidCanonicalPlan as e:

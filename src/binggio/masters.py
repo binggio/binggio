@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright (C) 2026 Ashish Kumar
-"""Master tables: one row per employee, book, desk ... (and a calendar), proposed by Binggio and
+"""Master tables: one row per staff member, store, product ... (and a calendar), proposed by Binggio and
 approved by a person.
 
-Enterprise extracts often have no column that is unique on every row: the same book appears once
+Enterprise extracts often have no column that is unique on every row: the same store appears once
 per reporting month and once per version. A master is the distinct list of an entity's
 identifiers, so it is unique by construction, and every table that mentions the entity joins to it
 many-to-one.
@@ -40,8 +40,8 @@ from binggio.profiling import shapes
 
 MASTER_SOURCE = 'Binggio masters'
 MAX_DISTINCT = 2_000_000
-PEOPLE = ('employee', 'worker', 'person', 'staff', 'trader', 'bookrunner', 'runner', 'controller', 'manager', 'owner', 'approver',
-          'delegate', 'contact', 'escalation', 'certifiedby', 'actionby', 'user', 'analyst', 'head', 'reviewer', 'sponsor', 'member')
+PEOPLE = ('employee', 'worker', 'person', 'staff', 'buyer', 'trader', 'seller', 'agent', 'controller', 'manager', 'owner', 'approver',
+          'delegate', 'contact', 'escalation', 'certifiedby', 'inspectedby', 'actionby', 'supervisor', 'auditor', 'inspector', 'user', 'analyst', 'head', 'reviewer', 'sponsor', 'member')
 _LOCK = threading.RLock()
 
 
@@ -235,7 +235,7 @@ def _entity_name(col, table_profile, domain_value):
     s = shapes.subject(col['name'])
     if s: return s
     words = [w for w in re.split(r'[^a-z0-9]+', table_profile['table'].casefold()) if w and not w.isdigit()
-             and w not in ('ytd', 'mtd', 'qtd', 'brds', 'erds', 'irds', 'tbl', 'table', 'data', 'core', 'master', 'dim', 'fact')]
+             and w not in ('ytd', 'mtd', 'qtd', 'tbl', 'table', 'data', 'core', 'master', 'dim', 'fact')]
     return words[-1] if words else table_profile['table']
 
 
@@ -391,7 +391,7 @@ def recommend(root, progress=None):
 
 def _propose(cands, taken):
     # anchors: the identifier of each table's own rows; the one with most values leads its entity
-    # equal counts: the table with fewer rows per identifier and more columns describing it leads (book master: BK_CORE, not BK_ASSO)
+    # equal counts: the table with fewer rows per identifier and more columns describing it leads (store master: STORES, not STORE_LINKS)
     anchors = sorted([c for c in cands if c['own']], key=lambda c: (-c['distinct'], round(c['rows'] / c['distinct'], 1), -c['width'], c['table']))
     groups = []                       # [{'sor': cand, 'members': [(cand, evidence)]}]
     for a in anchors:

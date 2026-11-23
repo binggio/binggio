@@ -34,9 +34,23 @@ If your terminal says `binggio` is not recognised (common on Windows when pip in
 user folder), use `python -m binggio` instead, for example `python -m binggio ui`, or add the
 Scripts folder pip mentions to your PATH.
 
-Asking questions in plain language needs a model key: set `BINGGIO_LLM_API_KEY` (or
-`OPENAI_API_KEY`). Everything else (profiling, discovery, review, running saved plans) works
-without one.
+Asking questions in plain language needs a model, from any provider. Choose it in **Settings**
+in the app, or set it before starting:
+
+| Provider | Settings |
+|---|---|
+| OpenAI (default) | `BINGGIO_LLM_API_KEY` (or `OPENAI_API_KEY`); model `gpt-4.1-mini` unless `BINGGIO_LLM_MODEL` says otherwise |
+| Anthropic Claude | `BINGGIO_LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`, `BINGGIO_LLM_MODEL` |
+| Google Gemini | `BINGGIO_LLM_PROVIDER=gemini`, `GEMINI_API_KEY`, `BINGGIO_LLM_MODEL` (for example `gemini-2.5-flash`) |
+| Azure OpenAI | `BINGGIO_LLM_PROVIDER=azure`, `BINGGIO_LLM_BASE_URL=https://NAME.openai.azure.com`, `AZURE_OPENAI_API_KEY`, `BINGGIO_LLM_MODEL` = deployment name |
+| Anything with an OpenAI-style API (Mistral, Groq, OpenRouter, DeepSeek, a company gateway) | `BINGGIO_LLM_PROVIDER=compatible`, `BINGGIO_LLM_BASE_URL`, `BINGGIO_LLM_API_KEY`, `BINGGIO_LLM_MODEL` |
+| A model on this computer (Ollama, LM Studio) | `BINGGIO_LLM_BASE_URL=http://localhost:11434/v1`, `BINGGIO_LLM_MODEL`; no key |
+
+Binggio sends the question and the names of approved tables and columns, never data rows. Every
+plan a model writes is checked by Binggio before it runs, so the choice of model changes how often
+a question is understood, not what an answer may contain. An organisation can limit the models
+people may use with `BINGGIO_LLM_ALLOWED_MODELS` (comma-separated). Everything else (profiling,
+discovery, review, running saved plans) works without a model.
 
 ## The app
 
@@ -79,7 +93,7 @@ Built for data stewards:
   repeat or are empty, with examples. Make it the table's key only when it is unique.
 - **Masters, for data where no column is unique.** Enterprise extracts often repeat every record
   once per reporting month and per version, so no column can be a key. Binggio proposes masters
-  (one row per employee, book, desk ...) from the identifiers it finds on every row, and a
+  (one row per staff member, store, product ...) from the identifiers it finds on every row, and a
   calendar; a person approves which columns belong. Approved masters are built as tables, rebuilt
   on every refresh, sit at the centre of the relationship map, and every member column links to
   them many-to-one. Gaps are shown (ids used in a table but missing from the system of record),
